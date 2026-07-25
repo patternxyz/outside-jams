@@ -1,0 +1,11 @@
+export GCP_PROJECT_ID="outside-jams"
+export GCP_REGION="us-central1"
+export ARTIFACT_REGISTRY_REPOSITORY="gcr-outside-jams"
+export CLOUD_RUN_SERVICE="svc-outside-jams"
+export GITHUB_OWNER="patternxyz"
+export GITHUB_REPOSITORY="outside-jams"
+export GITHUB_BRANCH="dev"
+export DEPLOY_SERVICE_ACCOUNT_NAME="github-actions-deployer"
+export WIF_POOL_ID="github-pool"
+export WIF_PROVIDER_ID="github-provider"
+./setup-gcp.sh
