@@ -1,0 +1,23 @@
+{
+  "name": "basic-spa",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11.6.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"npm run dev -w @app/web\" \"npm run dev -w @app/api\"",
+    "build": "npm run build -w @app/web && npm run build -w @app/api",
+    "start": "npm run start -w @app/api",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.4",
+    "prettier": "^3.9.6"
+  }
+}

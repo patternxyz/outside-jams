@@ -1,0 +1,67 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: dev-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: Build and publish image
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      image: ${{ steps.image.outputs.uri }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Set image URI
+        id: image
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+        run: |
+          image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REGISTRY_REPOSITORY}/${CLOUD_RUN_SERVICE}:${GITHUB_SHA}"
+          echo "uri=${image}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build Docker image
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: docker build --tag "${IMAGE}" .
+
+      - name: Push Docker image
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: docker push "${IMAGE}"
+
+  deploy:
+    name: Deploy image
+    needs: build
+    uses: ./.github/workflows/deploy.yml
+    with:
+      image: ${{ needs.build.outputs.image }}
