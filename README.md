@@ -15,6 +15,19 @@ npm run dev
 
 The SPA runs at `http://localhost:5173` and proxies `/api` to the API at `http://localhost:3000`.
 
+The read-only API includes:
+
+- `GET /api/artists` and `GET /api/artists/:id`
+- `GET /api/performances` and `GET /api/performances/:id`
+
+Performance lists can be filtered with the `date`, `artistId`, `startTime`, and
+`location` query parameters. Dates use `YYYY-MM-DD`; start times use an ISO 8601
+timestamp. Filters can be combined.
+
+API routes are rate limited per client. The default allows 100 requests per
+60-second window and can be configured with `API_RATE_LIMIT` and
+`API_RATE_LIMIT_TTL_MS`.
+
 ## Production
 
 ```sh
@@ -87,6 +100,8 @@ Environment variables:
 - `CLOUD_RUN_SERVICE`
 - `DB_SSL`
 - `DB_SYNCHRONIZE`
+- `API_RATE_LIMIT`
+- `API_RATE_LIMIT_TTL_MS`
 
 Environment secrets:
 

@@ -25,12 +25,25 @@ CREATE TABLE IF NOT EXISTS performances (
     date_only date NOT NULL,
     starts timestamptz NULL,
     ends timestamptz NULL,
+    location text NULL,
     CONSTRAINT performances_pkey PRIMARY KEY (id),
     CONSTRAINT performances_artist_id_fkey
         FOREIGN KEY (artist_id) REFERENCES artists (id),
     CONSTRAINT performances_artist_date_times_key
         UNIQUE NULLS NOT DISTINCT (artist_id, date_only, starts, ends)
 );
+
+-- Keep existing installations compatible when this script is re-run after the
+-- location field was added.
+ALTER TABLE performances ADD COLUMN IF NOT EXISTS location text;
+
+-- artist_id is already the leading column of the unique constraint above.
+CREATE INDEX IF NOT EXISTS performances_date_only_idx
+    ON performances (date_only);
+CREATE INDEX IF NOT EXISTS performances_starts_idx
+    ON performances (starts);
+CREATE INDEX IF NOT EXISTS performances_location_idx
+    ON performances (location);
 
 CREATE SCHEMA IF NOT EXISTS import_staging;
 
@@ -140,7 +153,8 @@ staged_performances AS (
         ) AS artist_id,
         (performance ->> 'date')::date AS date_only,
         NULLIF(btrim(performance ->> 'startTime'), '')::timestamptz AS starts,
-        NULLIF(btrim(performance ->> 'endTime'), '')::timestamptz AS ends
+        NULLIF(btrim(performance ->> 'endTime'), '')::timestamptz AS ends,
+        NULLIF(btrim(performance ->> 'location'), '') AS location
     FROM staged_artists
     CROSS JOIN LATERAL jsonb_array_elements(
         COALESCE(artist -> 'performances', '[]'::jsonb)
@@ -174,7 +188,8 @@ identified_performances AS (
         artist_id,
         date_only,
         starts,
-        ends
+        ends,
+        location
     FROM staged_performances
 ),
 deduplicated_performances AS (
@@ -183,19 +198,21 @@ deduplicated_performances AS (
         artist_id,
         date_only,
         starts,
-        ends
+        ends,
+        location
     FROM identified_performances
     ORDER BY id
 )
-INSERT INTO performances (id, artist_id, date_only, starts, ends)
-SELECT id, artist_id, date_only, starts, ends
+INSERT INTO performances (id, artist_id, date_only, starts, ends, location)
+SELECT id, artist_id, date_only, starts, ends, location
 FROM deduplicated_performances
 WHERE true
 ON CONFLICT (id) DO UPDATE SET
     artist_id = EXCLUDED.artist_id,
     date_only = EXCLUDED.date_only,
     starts = EXCLUDED.starts,
-    ends = EXCLUDED.ends;
+    ends = EXCLUDED.ends,
+    location = EXCLUDED.location;
 
 DROP TABLE import_staging.outside_lands_json;
 
