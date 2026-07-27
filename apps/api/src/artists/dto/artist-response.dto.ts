@@ -1,4 +1,4 @@
-import type { Artist } from "../entities/artist.entity.js";
+import type { Artist, ArtistImage } from "../entities/artist.entity.js";
 
 export class ArtistResponseDto {
   id!: string;
@@ -7,6 +7,7 @@ export class ArtistResponseDto {
   spotifyUrl!: string | null;
   instagramUrl!: string | null;
   youtubeUrl!: string | null;
+  images!: ArtistImage[] | null;
 
   static fromEntity(artist: Artist): ArtistResponseDto {
     const dto = new ArtistResponseDto();
@@ -16,6 +17,7 @@ export class ArtistResponseDto {
     dto.spotifyUrl = artist.spotifyUrl;
     dto.instagramUrl = artist.instagramUrl;
     dto.youtubeUrl = artist.youtubeUrl;
+    dto.images = artist.images;
     return dto;
   }
 }

@@ -1,5 +1,11 @@
 import { Column, Entity, PrimaryColumn } from "typeorm";
 
+export type ArtistImage = {
+  url: string;
+  height: number | null;
+  width: number | null;
+};
+
 @Entity({ name: "artists" })
 export class Artist {
   @PrimaryColumn({ type: "uuid" })
@@ -19,4 +25,7 @@ export class Artist {
 
   @Column({ name: "youtube_url", type: "text", nullable: true })
   youtubeUrl!: string | null;
+
+  @Column({ type: "jsonb", nullable: true })
+  images!: ArtistImage[] | null;
 }

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS artists (
     spotify_url text,
     instagram_url text,
     youtube_url text,
+    images jsonb,
     CONSTRAINT artists_pkey PRIMARY KEY (id)
 );
 
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS performances (
 -- Keep existing installations compatible when this script is re-run after the
 -- location field was added.
 ALTER TABLE performances ADD COLUMN IF NOT EXISTS location text;
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS images jsonb;
 
 -- artist_id is already the leading column of the unique constraint above.
 CREATE INDEX IF NOT EXISTS performances_date_only_idx
@@ -99,7 +101,12 @@ normalized_artists AS (
             WHERE lower(link ->> 'domain') = 'youtube.com'
             ORDER BY link ->> 'url'
             LIMIT 1
-        ) AS youtube_url
+        ) AS youtube_url,
+        CASE
+            WHEN jsonb_typeof(artist -> 'images') = 'array'
+                THEN artist -> 'images'
+            ELSE NULL
+        END AS images
     FROM staged_artists
 ),
 deduplicated_artists AS (
@@ -109,9 +116,10 @@ deduplicated_artists AS (
         spotify_id,
         spotify_url,
         instagram_url,
-        youtube_url
+        youtube_url,
+        images
     FROM normalized_artists
-    ORDER BY id, name, spotify_url, instagram_url, youtube_url
+    ORDER BY id, name, spotify_url, instagram_url, youtube_url, images
 )
 INSERT INTO artists (
     id,
@@ -119,7 +127,8 @@ INSERT INTO artists (
     spotify_id,
     spotify_url,
     instagram_url,
-    youtube_url
+    youtube_url,
+    images
 )
 SELECT
     id,
@@ -127,7 +136,8 @@ SELECT
     spotify_id,
     spotify_url,
     instagram_url,
-    youtube_url
+    youtube_url,
+    images
 FROM deduplicated_artists
 WHERE true
 ON CONFLICT (id) DO UPDATE SET
@@ -135,7 +145,8 @@ ON CONFLICT (id) DO UPDATE SET
     spotify_id = EXCLUDED.spotify_id,
     spotify_url = EXCLUDED.spotify_url,
     instagram_url = EXCLUDED.instagram_url,
-    youtube_url = EXCLUDED.youtube_url;
+    youtube_url = EXCLUDED.youtube_url,
+    images = EXCLUDED.images;
 
 WITH staged_artists AS (
     SELECT payload AS artist

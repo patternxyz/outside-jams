@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-
+import {
+  type ArtistImage,
+  useArtistsQuery,
+  useDisconnectSpotifyMutation,
+  useSpotifyStatusQuery,
+} from "@/api/outside-jams";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -9,14 +13,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Item, ItemContent, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 
-type SpotifyStatus = {
-  connected: boolean;
-  displayName?: string;
-};
+function getThumbnail(images: ArtistImage[] | null): ArtistImage | null {
+  return images?.find((image) => image.width === 320) ?? images?.[0] ?? null;
+}
+
+function getInitials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
 
 export default function App() {
-  const [status, setStatus] = useState<SpotifyStatus | null>(null);
   const callbackResult = new URLSearchParams(window.location.search).get("spotify");
   const callbackError =
     callbackResult === "denied"
@@ -24,71 +37,107 @@ export default function App() {
       : callbackResult === "error"
         ? "Spotify could not be connected. Please try again."
         : null;
-  const [error, setError] = useState<string | null>(callbackError);
-  const [disconnecting, setDisconnecting] = useState(false);
+  const statusQuery = useSpotifyStatusQuery();
+  const artistsQuery = useArtistsQuery();
+  const disconnectMutation = useDisconnectSpotifyMutation();
+  const connectionError = callbackError
+    ? callbackError
+    : statusQuery.isError
+      ? "Unable to check your Spotify connection."
+      : disconnectMutation.isError
+        ? "Spotify could not be disconnected. Please try again."
+        : null;
 
-  useEffect(() => {
-    fetch("/api/auth/spotify/status", { credentials: "same-origin" })
-      .then((response) => {
-        if (!response.ok) throw new Error("Request failed");
-        return response.json() as Promise<SpotifyStatus>;
-      })
-      .then(setStatus)
-      .catch(() => setError("Unable to check your Spotify connection."));
-  }, []);
-
-  async function disconnectSpotify() {
-    setDisconnecting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/auth/spotify", {
-        method: "DELETE",
-        credentials: "same-origin",
-      });
-      if (!response.ok) throw new Error("Request failed");
-      setStatus({ connected: false });
-      window.history.replaceState({}, "", window.location.pathname);
-    } catch {
-      setError("Spotify could not be disconnected. Please try again.");
-    } finally {
-      setDisconnecting(false);
-    }
+  function disconnectSpotify() {
+    disconnectMutation.mutate(undefined, {
+      onSuccess: () => window.history.replaceState({}, "", window.location.pathname),
+    });
   }
 
   return (
-    <main className="grid min-h-svh place-items-center p-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Spotify</CardTitle>
-          <CardDescription>Connect your account to personalize Outside Jams.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {error ? (
-            <p role="alert" className="text-destructive">
-              {error}
-            </p>
-          ) : status?.connected ? (
-            <p>
-              Connected as <strong>{status.displayName}</strong>
-            </p>
-          ) : status ? (
-            <p className="text-muted-foreground">No Spotify account connected.</p>
-          ) : (
-            <p className="text-muted-foreground">Checking connection…</p>
-          )}
-        </CardContent>
-        <CardFooter>
-          {status?.connected ? (
-            <Button variant="destructive" disabled={disconnecting} onClick={disconnectSpotify}>
-              {disconnecting ? "Disconnecting…" : "Disconnect Spotify"}
-            </Button>
-          ) : (
-            <Button onClick={() => window.location.assign("/api/auth/spotify")}>
-              Connect Spotify
-            </Button>
-          )}
-        </CardFooter>
-      </Card>
+    <main className="min-h-svh p-6">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Spotify</CardTitle>
+            <CardDescription>Connect your account to personalize Outside Jams.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {connectionError ? (
+              <p role="alert" className="text-destructive">
+                {connectionError}
+              </p>
+            ) : statusQuery.data?.connected ? (
+              <p>
+                Connected as <strong>{statusQuery.data.displayName}</strong>
+              </p>
+            ) : statusQuery.data ? (
+              <p className="text-muted-foreground">No Spotify account connected.</p>
+            ) : (
+              <p className="text-muted-foreground">Checking connection…</p>
+            )}
+          </CardContent>
+          <CardFooter>
+            {statusQuery.data?.connected ? (
+              <Button
+                variant="destructive"
+                disabled={disconnectMutation.isPending}
+                onClick={disconnectSpotify}
+              >
+                {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect Spotify"}
+              </Button>
+            ) : (
+              <Button onClick={() => window.location.assign("/api/auth/spotify")}>
+                Connect Spotify
+              </Button>
+            )}
+          </CardFooter>
+        </Card>
+
+        {statusQuery.data?.connected ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Artists</CardTitle>
+              <CardDescription>Outside Lands 2026 artists.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {artistsQuery.isError ? (
+                <p role="alert" className="text-destructive">
+                  Unable to load artists. Please try again later.
+                </p>
+              ) : artistsQuery.data ? (
+                <ItemGroup className="grid gap-3 sm:grid-cols-2">
+                  {artistsQuery.data.map((artist) => {
+                    const thumbnail = getThumbnail(artist.images);
+
+                    return (
+                      <Item key={artist.id} role="listitem" variant="outline" size="sm">
+                        <ItemMedia variant="image">
+                          {thumbnail ? (
+                            <img src={thumbnail.url} alt="" loading="lazy" />
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className="flex size-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground"
+                            >
+                              {getInitials(artist.name)}
+                            </span>
+                          )}
+                        </ItemMedia>
+                        <ItemContent>
+                          <ItemTitle>{artist.name}</ItemTitle>
+                        </ItemContent>
+                      </Item>
+                    );
+                  })}
+                </ItemGroup>
+              ) : (
+                <p className="text-muted-foreground">Loading artists…</p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
     </main>
   );
 }
