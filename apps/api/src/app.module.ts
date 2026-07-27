@@ -6,7 +6,9 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 
 import { AppController } from "./app.controller.js";
 import { ArtistsModule } from "./artists/artists.module.js";
+import { CreateSpotifyAuth1753500000000 } from "./database/migrations/1753500000000-create-spotify-auth.js";
 import { PerformancesModule } from "./performances/performances.module.js";
+import { SpotifyModule } from "./spotify/spotify.module.js";
 
 const DEFAULT_RATE_LIMIT = 100;
 const DEFAULT_RATE_LIMIT_TTL_MS = 60_000;
@@ -42,10 +44,13 @@ function positiveIntegerOrDefault(value: string | undefined, fallback: number): 
         ssl: config.get("DB_SSL") === "true",
         synchronize: config.get("DB_SYNCHRONIZE") === "true",
         autoLoadEntities: true,
+        migrations: [CreateSpotifyAuth1753500000000],
+        migrationsRun: config.get("DB_RUN_MIGRATIONS") === "true",
       }),
     }),
     ArtistsModule,
     PerformancesModule,
+    SpotifyModule,
   ],
   controllers: [AppController],
   providers: [

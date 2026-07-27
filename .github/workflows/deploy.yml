@@ -10,6 +10,14 @@ on:
     secrets:
       DATABASE_URL:
         required: true
+      SESSION_SECRET:
+        required: true
+      SPOTIFY_CLIENT_ID:
+        required: true
+      SPOTIFY_CLIENT_SECRET:
+        required: true
+      TOKEN_ENCRYPTION_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -46,5 +54,14 @@ jobs:
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             DB_SSL=${{ vars.DB_SSL }}
             DB_SYNCHRONIZE=${{ vars.DB_SYNCHRONIZE }}
+            DB_RUN_MIGRATIONS=${{ vars.DB_RUN_MIGRATIONS }}
             API_RATE_LIMIT=${{ vars.API_RATE_LIMIT }}
             API_RATE_LIMIT_TTL_MS=${{ vars.API_RATE_LIMIT_TTL_MS }}
+            API_BASE_URL=${{ vars.API_BASE_URL }}
+            TRUST_PROXY=true
+            SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+            TOKEN_ENCRYPTION_KEY=${{ secrets.TOKEN_ENCRYPTION_KEY }}
+            SPOTIFY_CLIENT_ID=${{ secrets.SPOTIFY_CLIENT_ID }}
+            SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
+            SPOTIFY_TOKEN_CACHE_SIZE=${{ vars.SPOTIFY_TOKEN_CACHE_SIZE }}
+            SPOTIFY_TOKEN_CACHE_TTL_MS=${{ vars.SPOTIFY_TOKEN_CACHE_TTL_MS }}

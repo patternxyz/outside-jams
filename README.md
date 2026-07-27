@@ -15,6 +15,33 @@ npm run dev
 
 The SPA runs at `http://localhost:5173` and proxies `/api` to the API at `http://localhost:3000`.
 
+### Connect Spotify
+
+Create an app in the Spotify developer dashboard and add this local redirect URI:
+
+```text
+http://127.0.0.1:5173/api/auth/spotify/callback
+```
+
+Set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in `.env`. Generate the two
+application secrets before starting the app:
+
+```sh
+openssl rand -base64 48 # SESSION_SECRET
+openssl rand -base64 32 # TOKEN_ENCRYPTION_KEY
+```
+
+`API_BASE_URL` controls the OAuth callback origin. Leave it empty to use the
+current request origin, which works through Vite's local proxy when the app is
+opened at `http://127.0.0.1:5173`, or set it to a proxy/public origin such as
+`https://example.test`. The exact resulting callback URI
+(`${API_BASE_URL}/api/auth/spotify/callback`) must also be registered with Spotify.
+
+Set `DB_RUN_MIGRATIONS=true` to create `public.users`, the PostgreSQL session
+table, and the Spotify-specific tables under the `spotify` schema at startup.
+Spotify tokens are encrypted in PostgreSQL, resolved through the server-side
+session, and cached in a bounded in-process LRU. They are never sent to the SPA.
+
 The read-only API includes:
 
 - `GET /api/artists` and `GET /api/artists/:id`
@@ -100,14 +127,27 @@ Environment variables:
 - `CLOUD_RUN_SERVICE`
 - `DB_SSL`
 - `DB_SYNCHRONIZE`
+- `DB_RUN_MIGRATIONS`
 - `API_RATE_LIMIT`
 - `API_RATE_LIMIT_TTL_MS`
+- `API_BASE_URL`
+- `SPOTIFY_TOKEN_CACHE_SIZE`
+- `SPOTIFY_TOKEN_CACHE_TTL_MS`
 
 Environment secrets:
 
 - `GCP_WIF_PROVIDER`
 - `GCP_WIF_SERVICE_ACCOUNT`
 - `DATABASE_URL`
+- `SESSION_SECRET`
+- `TOKEN_ENCRYPTION_KEY`
+- `SPOTIFY_CLIENT_ID`
+- `SPOTIFY_CLIENT_SECRET`
+
+For Cloud Run, set `API_BASE_URL` to the service's public HTTPS origin and add
+that origin's `/api/auth/spotify/callback` URI to the Spotify app. The deployment
+workflow reads all four sensitive Spotify/session values from GitHub environment
+secrets rather than embedding them in the image or workflow.
 
 The script also prints ready-to-run `gh variable set` and `gh secret set`
 commands. If using those commands, first install and authenticate the GitHub CLI:
