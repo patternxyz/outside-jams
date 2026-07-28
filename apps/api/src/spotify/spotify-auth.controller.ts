@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { BadRequestException, Controller, Delete, Get, Req, Res } from "@nestjs/common";
+import { BadRequestException, Controller, Delete, Get, Logger, Req, Res } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { type Request, type Response } from "express";
@@ -11,16 +11,20 @@ import { SpotifyAccount } from "./entities/spotify-account.entity.js";
 import { SpotifyCredential } from "./entities/spotify-credential.entity.js";
 import { SpotifyApiService } from "./spotify-api.service.js";
 import { SpotifyIdentityService } from "./spotify-identity.service.js";
+import { SpotifySyncDispatcher } from "./spotify-sync.dispatcher.js";
 import { SpotifyTokenService } from "./spotify-token.service.js";
 
 type SpotifyCallbackQuery = { code?: string; error?: string; state?: string };
 
 @Controller("auth/spotify")
 export class SpotifyAuthController {
+  private readonly logger = new Logger(SpotifyAuthController.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly spotifyApi: SpotifyApiService,
     private readonly identity: SpotifyIdentityService,
+    private readonly syncDispatcher: SpotifySyncDispatcher,
     private readonly tokenService: SpotifyTokenService,
     @InjectRepository(SpotifyAccount)
     private readonly accounts: Repository<SpotifyAccount>,
@@ -92,6 +96,14 @@ export class SpotifyAuthController {
         else resolve();
       });
     });
+
+    try {
+      await this.syncDispatcher.dispatch(userId);
+    } catch (error) {
+      // The Spotify connection is already complete. A queue outage should not
+      // invalidate it or prevent the user from returning to the application.
+      this.logger.error(`Could not dispatch Spotify sync for user ${userId}`, error);
+    }
 
     response.redirect("/?spotify=connected");
   }

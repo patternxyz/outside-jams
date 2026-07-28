@@ -12,6 +12,7 @@ describe("SpotifyAuthController", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       {} as never
     );
   }
@@ -49,11 +50,46 @@ describe("SpotifyAuthController", () => {
     );
   });
 
+  it("dispatches a sync after Spotify connection and session persistence succeed", async () => {
+    const spotifyApi = {
+      exchangeCode: vi.fn().mockResolvedValue({ accessToken: "token" }),
+      getProfile: vi.fn().mockResolvedValue({ id: "spotify-user" }),
+    };
+    const identity = { provision: vi.fn().mockResolvedValue("user-id") };
+    const syncDispatcher = { dispatch: vi.fn().mockResolvedValue(undefined) };
+    const session = {
+      spotifyOAuth: { codeVerifier: "verifier", state: "expected" },
+      regenerate: (callback: (error?: Error) => void) => callback(),
+      save: (callback: (error?: Error) => void) => callback(),
+      userId: undefined as string | undefined,
+    };
+    const response = { redirect: vi.fn() };
+    const spotify = new SpotifyAuthController(
+      new ConfigService({ API_BASE_URL: "https://api.example.test" }),
+      spotifyApi as never,
+      identity as never,
+      syncDispatcher as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    await spotify.callback(
+      { query: { code: "code", state: "expected" }, session } as never,
+      response as never
+    );
+
+    expect(session.userId).toBe("user-id");
+    expect(syncDispatcher.dispatch).toHaveBeenCalledWith("user-id");
+    expect(response.redirect).toHaveBeenCalledWith("/?spotify=connected");
+  });
+
   it("deletes Spotify data and invalidates cached tokens on disconnect", async () => {
     const accounts = { delete: vi.fn().mockResolvedValue({ affected: 1 }) };
     const tokenService = { invalidate: vi.fn() };
     const spotify = new SpotifyAuthController(
       new ConfigService(),
+      {} as never,
       {} as never,
       {} as never,
       tokenService as never,

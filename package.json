@@ -9,6 +9,9 @@
   "workspaces": [
     "apps/*"
   ],
+  "overrides": {
+    "rimraf": "^6.1.3"
+  },
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,green \"npm run dev -w @app/web\" \"npm run dev -w @app/api\"",
     "build": "npm run build -w @app/web && npm run build -w @app/api",

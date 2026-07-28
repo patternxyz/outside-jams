@@ -42,6 +42,9 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
 
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
       - name: Deploy to Cloud Run
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v3
@@ -50,6 +53,7 @@ jobs:
           region: ${{ vars.GCP_REGION }}
           service: ${{ vars.CLOUD_RUN_SERVICE }}
           image: ${{ inputs.image }}
+          flags: --service-account=${{ vars.CLOUD_RUN_SERVICE_ACCOUNT_EMAIL }}
           env_vars: |-
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             DB_SSL=${{ vars.DB_SSL }}
@@ -58,6 +62,11 @@ jobs:
             API_RATE_LIMIT=${{ vars.API_RATE_LIMIT }}
             API_RATE_LIMIT_TTL_MS=${{ vars.API_RATE_LIMIT_TTL_MS }}
             API_BASE_URL=${{ vars.API_BASE_URL }}
+            GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
+            GCP_REGION=${{ vars.GCP_REGION }}
+            CLOUD_TASKS_QUEUE=${{ vars.CLOUD_TASKS_QUEUE }}
+            CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL=${{ vars.CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL }}
+            CLOUD_TASKS_AUDIENCE=${{ vars.CLOUD_TASKS_AUDIENCE }}
             TRUST_PROXY=true
             SESSION_SECRET=${{ secrets.SESSION_SECRET }}
             TOKEN_ENCRYPTION_KEY=${{ secrets.TOKEN_ENCRYPTION_KEY }}
@@ -65,3 +74,12 @@ jobs:
             SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
             SPOTIFY_TOKEN_CACHE_SIZE=${{ vars.SPOTIFY_TOKEN_CACHE_SIZE }}
             SPOTIFY_TOKEN_CACHE_TTL_MS=${{ vars.SPOTIFY_TOKEN_CACHE_TTL_MS }}
+
+      - name: Grant the task identity access to the service
+        run: >-
+          gcloud run services add-iam-policy-binding "${{ vars.CLOUD_RUN_SERVICE }}"
+          --region "${{ vars.GCP_REGION }}"
+          --project "${{ vars.GCP_PROJECT_ID }}"
+          --member "serviceAccount:${{ vars.CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL }}"
+          --role roles/run.invoker
+          --quiet

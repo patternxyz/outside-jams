@@ -101,6 +101,9 @@ export GITHUB_OWNER="your-github-owner"
 export GITHUB_REPOSITORY="template-basic-spa"
 export GITHUB_BRANCH="dev"
 export DEPLOY_SERVICE_ACCOUNT_NAME="github-actions-deployer"
+export CLOUD_RUN_SERVICE_ACCOUNT_NAME="app-runtime"
+export CLOUD_TASKS_SERVICE_ACCOUNT_NAME="spotify-sync-task"
+export CLOUD_TASKS_QUEUE="spotify-sync"
 export WIF_POOL_ID="github-pool"
 export WIF_PROVIDER_ID="github-provider"
 
@@ -109,8 +112,10 @@ export WIF_PROVIDER_ID="github-provider"
 
 The script enables the required Google Cloud APIs, creates the Artifact Registry
 repository and deployer service account when needed, grants its deployment roles,
-and configures a Workload Identity provider restricted to this repository's
-`dev` branch. Re-running it with the same values is safe.
+creates the Spotify sync task queue and its runtime identities, and configures a
+Workload Identity provider restricted to this repository's `dev` branch. The
+deployment workflow grants the task caller `roles/run.invoker` after creating or
+updating the service. Re-running the setup script is safe.
 
 ### 2. Configure the GitHub environment
 
@@ -125,6 +130,10 @@ Environment variables:
 - `GCP_REGION`
 - `ARTIFACT_REGISTRY_REPOSITORY`
 - `CLOUD_RUN_SERVICE`
+- `CLOUD_RUN_SERVICE_ACCOUNT_EMAIL`
+- `CLOUD_TASKS_QUEUE`
+- `CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL`
+- `CLOUD_TASKS_AUDIENCE` (optional; defaults to `API_BASE_URL`)
 - `DB_SSL`
 - `DB_SYNCHRONIZE`
 - `DB_RUN_MIGRATIONS`
@@ -148,6 +157,12 @@ For Cloud Run, set `API_BASE_URL` to the service's public HTTPS origin and add
 that origin's `/api/auth/spotify/callback` URI to the Spotify app. The deployment
 workflow reads all four sensitive Spotify/session values from GitHub environment
 secrets rather than embedding them in the image or workflow.
+
+After Spotify OAuth succeeds, production enqueues an authenticated Cloud Task at
+`POST ${API_BASE_URL}/api/internal/spotify/sync`. The task's OIDC identity is
+checked by the application in addition to its Cloud Run IAM grant. In local
+development (`NODE_ENV=development`), the same sync runs asynchronously in the
+API process and does not require Google Cloud credentials.
 
 The script also prints ready-to-run `gh variable set` and `gh secret set`
 commands. If using those commands, first install and authenticate the GitHub CLI:

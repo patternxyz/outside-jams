@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configure the deployment settings in your shell before running this script:
-# export GCP_PROJECT_ID="project-id"
-# export GCP_REGION="us-central1"
-# export ARTIFACT_REGISTRY_REPOSITORY="gcr-name"
-# export CLOUD_RUN_SERVICE="service-name"
-# export GITHUB_OWNER="repo-owner"
-# export GITHUB_REPOSITORY="repo-name"
-# export GITHUB_BRANCH="dev"
-# export DEPLOY_SERVICE_ACCOUNT_NAME="github-actions-deployer"
-# export WIF_POOL_ID="github-pool"
-# export WIF_PROVIDER_ID="github-provider"
-# ./setup-gcp.sh
-
 : "${GCP_PROJECT_ID:?Set GCP_PROJECT_ID before running this script}"
 : "${GCP_REGION:?Set GCP_REGION before running this script}"
 : "${ARTIFACT_REGISTRY_REPOSITORY:?Set ARTIFACT_REGISTRY_REPOSITORY before running this script}"
@@ -22,10 +9,15 @@ set -euo pipefail
 : "${GITHUB_REPOSITORY:?Set GITHUB_REPOSITORY before running this script}"
 : "${GITHUB_BRANCH:?Set GITHUB_BRANCH before running this script}"
 : "${DEPLOY_SERVICE_ACCOUNT_NAME:?Set DEPLOY_SERVICE_ACCOUNT_NAME before running this script}"
+: "${CLOUD_RUN_SERVICE_ACCOUNT_NAME:?Set CLOUD_RUN_SERVICE_ACCOUNT_NAME before running this script}"
+: "${CLOUD_TASKS_SERVICE_ACCOUNT_NAME:?Set CLOUD_TASKS_SERVICE_ACCOUNT_NAME before running this script}"
+: "${CLOUD_TASKS_QUEUE:?Set CLOUD_TASKS_QUEUE before running this script}"
 : "${WIF_POOL_ID:?Set WIF_POOL_ID before running this script}"
 : "${WIF_PROVIDER_ID:?Set WIF_PROVIDER_ID before running this script}"
 
 DEPLOY_SERVICE_ACCOUNT_EMAIL="${DEPLOY_SERVICE_ACCOUNT_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+CLOUD_RUN_SERVICE_ACCOUNT_EMAIL="${CLOUD_RUN_SERVICE_ACCOUNT_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL="${CLOUD_TASKS_SERVICE_ACCOUNT_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 GITHUB_REPOSITORY_FULL_NAME="${GITHUB_OWNER}/${GITHUB_REPOSITORY}"
 
 retry() {
@@ -55,6 +47,7 @@ gcloud config set project "${GCP_PROJECT_ID}"
 
 gcloud services enable \
   artifactregistry.googleapis.com \
+  cloudtasks.googleapis.com \
   run.googleapis.com \
   iam.googleapis.com \
   iamcredentials.googleapis.com \
@@ -78,6 +71,20 @@ if ! gcloud iam service-accounts describe "${DEPLOY_SERVICE_ACCOUNT_EMAIL}" \
     --project "${GCP_PROJECT_ID}"
 fi
 
+if ! gcloud iam service-accounts describe "${CLOUD_RUN_SERVICE_ACCOUNT_EMAIL}" \
+  --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "${CLOUD_RUN_SERVICE_ACCOUNT_NAME}" \
+    --display-name "Outside Jams Cloud Run runtime" \
+    --project "${GCP_PROJECT_ID}"
+fi
+
+if ! gcloud iam service-accounts describe "${CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL}" \
+  --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "${CLOUD_TASKS_SERVICE_ACCOUNT_NAME}" \
+    --display-name "Spotify sync task caller" \
+    --project "${GCP_PROJECT_ID}"
+fi
+
 # Newly created service accounts can take a short time to propagate to the IAM
 # APIs even after the create command succeeds.
 retry 12 5 gcloud iam service-accounts describe "${DEPLOY_SERVICE_ACCOUNT_EMAIL}" \
@@ -93,6 +100,41 @@ for role in \
     --condition None \
     --quiet
 done
+
+retry 12 5 gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+  --member "serviceAccount:${CLOUD_RUN_SERVICE_ACCOUNT_EMAIL}" \
+  --role roles/cloudtasks.enqueuer \
+  --condition None \
+  --quiet
+
+retry 12 5 gcloud iam service-accounts add-iam-policy-binding \
+  "${CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL}" \
+  --project "${GCP_PROJECT_ID}" \
+  --member "serviceAccount:${CLOUD_RUN_SERVICE_ACCOUNT_EMAIL}" \
+  --role roles/iam.serviceAccountUser \
+  --condition None \
+  --quiet
+
+if ! gcloud tasks queues describe "${CLOUD_TASKS_QUEUE}" \
+  --location "${GCP_REGION}" \
+  --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud tasks queues create "${CLOUD_TASKS_QUEUE}" \
+    --location "${GCP_REGION}" \
+    --project "${GCP_PROJECT_ID}"
+fi
+
+if gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+  --region "${GCP_REGION}" \
+  --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+  retry 12 5 gcloud run services add-iam-policy-binding "${CLOUD_RUN_SERVICE}" \
+    --region "${GCP_REGION}" \
+    --project "${GCP_PROJECT_ID}" \
+    --member "serviceAccount:${CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL}" \
+    --role roles/run.invoker \
+    --quiet
+else
+  echo "Cloud Run service does not exist yet; the deployment workflow will grant the task caller roles/run.invoker after creating it." >&2
+fi
 
 PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT_ID}" --format='value(projectNumber)')"
 
@@ -138,6 +180,9 @@ echo "  GCP_PROJECT_ID=${GCP_PROJECT_ID}"
 echo "  GCP_REGION=${GCP_REGION}"
 echo "  ARTIFACT_REGISTRY_REPOSITORY=${ARTIFACT_REGISTRY_REPOSITORY}"
 echo "  CLOUD_RUN_SERVICE=${CLOUD_RUN_SERVICE}"
+echo "  CLOUD_RUN_SERVICE_ACCOUNT_EMAIL=${CLOUD_RUN_SERVICE_ACCOUNT_EMAIL}"
+echo "  CLOUD_TASKS_QUEUE=${CLOUD_TASKS_QUEUE}"
+echo "  CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL=${CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL}"
 echo
 echo "Set these GitHub dev environment secrets:"
 echo "  GCP_WIF_PROVIDER=${WIF_PROVIDER}"
@@ -148,5 +193,8 @@ echo "  gh variable set GCP_PROJECT_ID --env dev --body '${GCP_PROJECT_ID}'"
 echo "  gh variable set GCP_REGION --env dev --body '${GCP_REGION}'"
 echo "  gh variable set ARTIFACT_REGISTRY_REPOSITORY --env dev --body '${ARTIFACT_REGISTRY_REPOSITORY}'"
 echo "  gh variable set CLOUD_RUN_SERVICE --env dev --body '${CLOUD_RUN_SERVICE}'"
+echo "  gh variable set CLOUD_RUN_SERVICE_ACCOUNT_EMAIL --env dev --body '${CLOUD_RUN_SERVICE_ACCOUNT_EMAIL}'"
+echo "  gh variable set CLOUD_TASKS_QUEUE --env dev --body '${CLOUD_TASKS_QUEUE}'"
+echo "  gh variable set CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL --env dev --body '${CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL}'"
 echo "  gh secret set GCP_WIF_PROVIDER --env dev --body '${WIF_PROVIDER}'"
 echo "  gh secret set GCP_WIF_SERVICE_ACCOUNT --env dev --body '${DEPLOY_SERVICE_ACCOUNT_EMAIL}'"
