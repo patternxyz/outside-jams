@@ -2,8 +2,8 @@ import { Column, Entity, PrimaryColumn } from "typeorm";
 
 @Entity({ schema: "spotify", name: "credentials" })
 export class SpotifyCredential {
-  @PrimaryColumn({ name: "user_id", type: "uuid" })
-  userId!: string;
+  @PrimaryColumn({ name: "account_id", type: "text" })
+  accountId!: string;
 
   @Column({ name: "access_token", type: "text" })
   accessToken!: string;

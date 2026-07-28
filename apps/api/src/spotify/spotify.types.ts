@@ -12,4 +12,5 @@ export type SpotifyProfile = {
 
 export type CachedSpotifyTokens = SpotifyTokens & {
   userId: string;
+  accountId: string;
 };

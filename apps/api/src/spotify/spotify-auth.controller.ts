@@ -6,13 +6,13 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { type Request, type Response } from "express";
 import { Repository } from "typeorm";
 
+import { User } from "../users/entities/user.entity.js";
 import { apiBaseUrl } from "./api-base-url.js";
 import { SpotifyAccount } from "./entities/spotify-account.entity.js";
 import { SpotifyCredential } from "./entities/spotify-credential.entity.js";
 import { SpotifyApiService } from "./spotify-api.service.js";
 import { SpotifyIdentityService } from "./spotify-identity.service.js";
 import { SpotifySyncDispatcher } from "./spotify-sync.dispatcher.js";
-import { SpotifyTokenService } from "./spotify-token.service.js";
 
 type SpotifyCallbackQuery = { code?: string; error?: string; state?: string };
 
@@ -25,11 +25,12 @@ export class SpotifyAuthController {
     private readonly spotifyApi: SpotifyApiService,
     private readonly identity: SpotifyIdentityService,
     private readonly syncDispatcher: SpotifySyncDispatcher,
-    private readonly tokenService: SpotifyTokenService,
     @InjectRepository(SpotifyAccount)
     private readonly accounts: Repository<SpotifyAccount>,
     @InjectRepository(SpotifyCredential)
-    private readonly credentials: Repository<SpotifyCredential>
+    private readonly credentials: Repository<SpotifyCredential>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>
   ) {}
 
   @Get()
@@ -113,9 +114,12 @@ export class SpotifyAuthController {
   @Get("status")
   async status(@Req() request: Request): Promise<{ connected: boolean; displayName?: string }> {
     if (!request.session.userId) return { connected: false };
+    const user = await this.users.findOneBy({ id: request.session.userId });
+    if (!user?.spotifyAccountId) return { connected: false };
+
     const [account, hasCredentials] = await Promise.all([
-      this.accounts.findOneBy({ userId: request.session.userId }),
-      this.credentials.existsBy({ userId: request.session.userId }),
+      this.accounts.findOneBy({ id: user.spotifyAccountId }),
+      this.credentials.existsBy({ accountId: user.spotifyAccountId }),
     ]);
     return account && hasCredentials
       ? { connected: true, displayName: account.displayName }
@@ -127,8 +131,7 @@ export class SpotifyAuthController {
     const userId = request.session.userId;
     if (!userId) return { connected: false };
 
-    await this.accounts.delete({ userId });
-    this.tokenService.invalidate(userId);
+    await this.identity.disconnect(userId);
     delete request.session.userId;
     return { connected: false };
   }

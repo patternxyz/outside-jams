@@ -11,6 +11,7 @@ import { AddSpotifySyncStatus1753600000000 } from "./database/migrations/1753600
 import { CreateSpotifyTopArtists1753700000000 } from "./database/migrations/1753700000000-create-spotify-top-artists.js";
 import { CreateSpotifyFollowedArtists1753800000000 } from "./database/migrations/1753800000000-create-spotify-followed-artists.js";
 import { CreateSpotifyUserTags1753900000000 } from "./database/migrations/1753900000000-create-spotify-user-tags.js";
+import { RefactorSpotifySchema1754100000000 } from "./database/migrations/1754100000000-refactor-spotify-schema.js";
 import { PerformancesModule } from "./performances/performances.module.js";
 import { SpotifyModule } from "./spotify/spotify.module.js";
 
@@ -54,6 +55,7 @@ function positiveIntegerOrDefault(value: string | undefined, fallback: number): 
           CreateSpotifyTopArtists1753700000000,
           CreateSpotifyFollowedArtists1753800000000,
           CreateSpotifyUserTags1753900000000,
+          RefactorSpotifySchema1754100000000,
         ],
         migrationsRun: config.get("DB_RUN_MIGRATIONS") === "true",
       }),

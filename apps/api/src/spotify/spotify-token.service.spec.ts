@@ -18,6 +18,7 @@ describe("SpotifyTokenService", () => {
     findOneBy: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
+  let users: { findOneBy: ReturnType<typeof vi.fn> };
   let spotifyApi: { refresh: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
@@ -26,12 +27,16 @@ describe("SpotifyTokenService", () => {
       findOneBy: vi.fn(),
       update: vi.fn().mockResolvedValue({ affected: 1 }),
     };
+    users = {
+      findOneBy: vi.fn().mockResolvedValue({ id: "user-1", spotifyAccountId: "spotify-user-1" }),
+    };
     spotifyApi = { refresh: vi.fn() };
   });
 
   function service(): SpotifyTokenService {
     return new SpotifyTokenService(
       repository as never,
+      users as never,
       spotifyApi as never,
       cipher as never,
       config
@@ -40,7 +45,7 @@ describe("SpotifyTokenService", () => {
 
   it("lazy-loads on a miss and serves the next lookup from the LRU", async () => {
     repository.findOneBy.mockResolvedValue({
-      userId: "user-1",
+      accountId: "spotify-user-1",
       accessToken: "encrypted:access",
       refreshToken: "encrypted:refresh",
       expiresAt: new Date(Date.now() + 300_000),
@@ -63,6 +68,7 @@ describe("SpotifyTokenService", () => {
     const tokens = service();
     tokens.prime({
       userId: "user-1",
+      accountId: "spotify-user-1",
       accessToken: "expired",
       refreshToken: "refresh",
       expiresAt: new Date(0),
@@ -88,6 +94,7 @@ describe("SpotifyTokenService", () => {
     const tokens = service();
     tokens.prime({
       userId: "user-1",
+      accountId: "spotify-user-1",
       accessToken: "expired",
       refreshToken: "refresh",
       expiresAt: new Date(0),
@@ -104,6 +111,7 @@ describe("SpotifyTokenService", () => {
     const tokens = service();
     tokens.prime({
       userId: "user-1",
+      accountId: "spotify-user-1",
       accessToken: "expired",
       refreshToken: "invalid",
       expiresAt: new Date(0),
@@ -113,6 +121,6 @@ describe("SpotifyTokenService", () => {
     await expect(tokens.getValidAccessToken("user-1")).rejects.toBeInstanceOf(
       UnauthorizedException
     );
-    expect(repository.delete).toHaveBeenCalledWith({ userId: "user-1" });
+    expect(repository.delete).toHaveBeenCalledWith({ accountId: "spotify-user-1" });
   });
 });

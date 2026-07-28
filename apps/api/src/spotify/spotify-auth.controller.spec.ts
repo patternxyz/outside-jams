@@ -87,15 +87,14 @@ describe("SpotifyAuthController", () => {
   });
 
   it("deletes Spotify data and invalidates cached tokens on disconnect", async () => {
-    const accounts = { delete: vi.fn().mockResolvedValue({ affected: 1 }) };
-    const tokenService = { invalidate: vi.fn() };
+    const identity = { disconnect: vi.fn().mockResolvedValue(undefined) };
     const spotify = new SpotifyAuthController(
       new ConfigService(),
       {} as never,
+      identity as never,
       {} as never,
       {} as never,
-      tokenService as never,
-      accounts as never,
+      {} as never,
       {} as never
     );
     const request = { session: { userId: "user-1" as string | undefined } };
@@ -103,8 +102,7 @@ describe("SpotifyAuthController", () => {
     await expect(spotify.disconnect(request as never)).resolves.toEqual({
       connected: false,
     });
-    expect(accounts.delete).toHaveBeenCalledWith({ userId: "user-1" });
-    expect(tokenService.invalidate).toHaveBeenCalledWith("user-1");
+    expect(identity.disconnect).toHaveBeenCalledWith("user-1");
     expect(request.session.userId).toBeUndefined();
   });
 });

@@ -4,11 +4,8 @@ export type SpotifySyncStatus = "started" | "completed" | "failed";
 
 @Entity({ schema: "spotify", name: "accounts" })
 export class SpotifyAccount {
-  @PrimaryColumn({ name: "user_id", type: "uuid" })
-  userId!: string;
-
-  @Column({ name: "spotify_user_id", type: "text", unique: true })
-  spotifyUserId!: string;
+  @PrimaryColumn({ type: "text" })
+  id!: string;
 
   @Column({ name: "display_name", type: "text" })
   displayName!: string;

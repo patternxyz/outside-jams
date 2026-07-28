@@ -5,9 +5,16 @@ import { SpotifySyncService } from "./spotify-sync.service.js";
 
 describe("SpotifySyncService", () => {
   const userId = "8b0dbbf5-7f26-4647-9569-cd36b811edc7";
+  const accountId = "spotify-user-id";
 
   function dependencies() {
-    const accounts = { update: vi.fn().mockResolvedValue({ affected: 1 }) };
+    const accounts = {
+      findOneBy: vi.fn().mockResolvedValue({ id: accountId }),
+      update: vi.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const users = {
+      findOneBy: vi.fn().mockResolvedValue({ id: userId, spotifyAccountId: accountId }),
+    };
     const manager = {
       query: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({ affected: 1 }),
@@ -24,11 +31,12 @@ describe("SpotifySyncService", () => {
     const tokenService = { getValidAccessToken: vi.fn().mockResolvedValue("access-token") };
     const service = new SpotifySyncService(
       accounts as never,
+      users as never,
       dataSource as never,
       spotifyApi as never,
       tokenService as never
     );
-    return { accounts, dataSource, manager, service, spotifyApi, tokenService };
+    return { accounts, dataSource, manager, service, spotifyApi, tokenService, users };
   }
 
   it("replaces artist snapshots, projects tags, and completes in a transaction", async () => {
@@ -39,7 +47,7 @@ describe("SpotifySyncService", () => {
     expect(accounts.update).toHaveBeenCalledTimes(7);
     expect(accounts.update).toHaveBeenNthCalledWith(
       1,
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastSyncStatus: "started",
         lastUpdate: "Sync started",
@@ -48,12 +56,12 @@ describe("SpotifySyncService", () => {
     );
     expect(accounts.update).toHaveBeenNthCalledWith(
       2,
-      { userId },
+      { id: accountId },
       expect.objectContaining({ lastUpdate: "Fetched 2 top artists", updatedAt: expect.any(Date) })
     );
     expect(accounts.update).toHaveBeenNthCalledWith(
       3,
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastUpdate: "Fetched 2 followed artists",
         updatedAt: expect.any(Date),
@@ -61,12 +69,12 @@ describe("SpotifySyncService", () => {
     );
     expect(accounts.update).toHaveBeenNthCalledWith(
       4,
-      { userId },
+      { id: accountId },
       expect.objectContaining({ lastUpdate: "Saved 2 top artists", updatedAt: expect.any(Date) })
     );
     expect(accounts.update).toHaveBeenNthCalledWith(
       5,
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastUpdate: "Saved 2 followed artists",
         updatedAt: expect.any(Date),
@@ -74,12 +82,12 @@ describe("SpotifySyncService", () => {
     );
     expect(accounts.update).toHaveBeenNthCalledWith(
       6,
-      { userId },
+      { id: accountId },
       expect.objectContaining({ lastUpdate: "Projected artist tags", updatedAt: expect.any(Date) })
     );
     expect(accounts.update).toHaveBeenNthCalledWith(
       7,
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastSyncStatus: "completed",
         lastUpdate: "Sync completed",
@@ -97,29 +105,31 @@ describe("SpotifySyncService", () => {
     expect(manager.query).toHaveBeenNthCalledWith(
       1,
       expect.stringContaining("spotify.top_artists"),
-      [userId, ["spotify-1", "spotify-2"]]
+      [accountId, ["spotify-1", "spotify-2"]]
     );
     expect(manager.query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("spotify.followed_artists"),
-      [userId, ["spotify-3", "spotify-4"]]
+      [accountId, ["spotify-3", "spotify-4"]]
     );
-    expect(manager.query).toHaveBeenNthCalledWith(
-      3,
-      "DELETE FROM spotify.user_tags WHERE user_id = $1",
-      [userId]
-    );
+    expect(manager.query).toHaveBeenNthCalledWith(3, "DELETE FROM public.tags WHERE user_id = $1", [
+      userId,
+    ]);
     expect(manager.query).toHaveBeenNthCalledWith(
       4,
-      expect.stringContaining("INSERT INTO spotify.user_tags"),
-      [userId]
+      expect.stringContaining("INSERT INTO public.tags"),
+      [userId, accountId]
     );
     expect(manager.query.mock.calls[0][0]).toContain("unnest($2::text[])");
     expect(manager.query.mock.calls[0][0]).not.toContain("public.artists");
     expect(manager.query.mock.calls[1][0]).toContain("unnest($2::text[])");
     expect(manager.query.mock.calls[1][0]).not.toContain("public.artists");
-    expect(manager.query.mock.calls[3][0]).toContain("WHERE fa.user_id = $1");
-    expect(manager.query.mock.calls[3][0]).toContain("WHERE ta.user_id = $1");
+    expect(manager.query.mock.calls[3][0]).toContain("WHERE fa.account_id = $2");
+    expect(manager.query.mock.calls[3][0]).toContain("WHERE ta.account_id = $2");
+    expect(manager.query.mock.calls[3][0]).toContain("$1::uuid AS user_id");
+    expect(manager.query.mock.calls[3][0]).toContain("public.artists");
+    expect(manager.query.mock.calls[3][0]).toContain("artist.spotify_id = fa.artist_id");
+    expect(manager.query.mock.calls[3][0]).toContain("artist.spotify_id = ta.artist_id");
     expect(manager.query.mock.calls[3][0]).toContain("array_agg(tag ORDER BY tag)");
     expect(manager.update).not.toHaveBeenCalled();
     expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
@@ -144,7 +154,7 @@ describe("SpotifySyncService", () => {
 
   it("rejects a task for an unknown Spotify account", async () => {
     const { accounts, service, tokenService } = dependencies();
-    accounts.update.mockResolvedValue({ affected: 0 });
+    accounts.findOneBy.mockResolvedValue(null);
 
     await expect(service.sync(userId)).rejects.toBeInstanceOf(NotFoundException);
     expect(tokenService.getValidAccessToken).not.toHaveBeenCalled();
@@ -160,7 +170,7 @@ describe("SpotifySyncService", () => {
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(spotifyApi.getFollowedArtistIds).not.toHaveBeenCalled();
     expect(accounts.update).toHaveBeenLastCalledWith(
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastSyncStatus: "failed",
         lastUpdate: "Sync failed while fetching top artists",
@@ -179,7 +189,7 @@ describe("SpotifySyncService", () => {
     expect(spotifyApi.getTopArtistIds).toHaveBeenCalledTimes(1);
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(accounts.update).toHaveBeenLastCalledWith(
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastSyncStatus: "failed",
         lastUpdate: "Sync failed while fetching followed artists",
@@ -196,7 +206,7 @@ describe("SpotifySyncService", () => {
     await expect(service.sync(userId)).rejects.toBe(failure);
 
     expect(accounts.update).toHaveBeenLastCalledWith(
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastSyncStatus: "failed",
         lastUpdate: "Sync failed while saving top artists",
@@ -217,7 +227,7 @@ describe("SpotifySyncService", () => {
     await expect(service.sync(userId)).rejects.toBe(failure);
 
     expect(accounts.update).toHaveBeenLastCalledWith(
-      { userId },
+      { id: accountId },
       expect.objectContaining({
         lastSyncStatus: "failed",
         lastUpdate: "Sync failed while projecting artist tags",

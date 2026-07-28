@@ -4,6 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { LRUCache } from "lru-cache";
 import { Repository } from "typeorm";
 
+import { User } from "../users/entities/user.entity.js";
 import { SpotifyCredential } from "./entities/spotify-credential.entity.js";
 import { SpotifyApiService } from "./spotify-api.service.js";
 import { type CachedSpotifyTokens, type SpotifyTokens } from "./spotify.types.js";
@@ -26,6 +27,8 @@ export class SpotifyTokenService {
   constructor(
     @InjectRepository(SpotifyCredential)
     private readonly credentials: Repository<SpotifyCredential>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
     private readonly spotifyApi: SpotifyApiService,
     private readonly cipher: TokenCipherService,
     config: ConfigService
@@ -53,12 +56,17 @@ export class SpotifyTokenService {
   }
 
   private async load(userId: string): Promise<CachedSpotifyTokens> {
-    const credential = await this.credentials.findOneBy({ userId });
+    const user = await this.users.findOneBy({ id: userId });
+    if (!user?.spotifyAccountId) {
+      throw new UnauthorizedException("Spotify is not connected");
+    }
+    const credential = await this.credentials.findOneBy({ accountId: user.spotifyAccountId });
     if (!credential) {
       throw new UnauthorizedException("Spotify is not connected");
     }
     const tokens: CachedSpotifyTokens = {
       userId,
+      accountId: user.spotifyAccountId,
       accessToken: this.cipher.decrypt(credential.accessToken),
       refreshToken: this.cipher.decrypt(credential.refreshToken),
       expiresAt: credential.expiresAt,
@@ -88,19 +96,19 @@ export class SpotifyTokenService {
       refreshed = await this.spotifyApi.refresh(tokens.refreshToken);
     } catch (error) {
       if (error instanceof UnauthorizedException) {
-        await this.credentials.delete({ userId: tokens.userId });
+        await this.credentials.delete({ accountId: tokens.accountId });
       }
       throw error;
     }
-    await this.writeThrough(tokens.userId, refreshed);
-    const cached = { userId: tokens.userId, ...refreshed };
+    await this.writeThrough(tokens.accountId, refreshed);
+    const cached = { userId: tokens.userId, accountId: tokens.accountId, ...refreshed };
     this.cache.set(tokens.userId, cached);
     return cached;
   }
 
-  private async writeThrough(userId: string, tokens: SpotifyTokens): Promise<void> {
+  private async writeThrough(accountId: string, tokens: SpotifyTokens): Promise<void> {
     const result = await this.credentials.update(
-      { userId },
+      { accountId },
       {
         accessToken: this.cipher.encrypt(tokens.accessToken),
         refreshToken: this.cipher.encrypt(tokens.refreshToken),
