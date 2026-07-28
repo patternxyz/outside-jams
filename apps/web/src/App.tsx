@@ -1,7 +1,11 @@
+import { useState } from "react";
+
 import {
   type ArtistImage,
+  type Performance,
   useArtistsQuery,
   useDisconnectSpotifyMutation,
+  usePerformancesQuery,
   useSpotifyStatusQuery,
 } from "@/api/outside-jams";
 import { Button } from "@/components/ui/button";
@@ -13,7 +17,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Item, ItemContent, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const ALL_DAYS = "all";
+
+const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "long" });
+const performanceTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 function getThumbnail(images: ArtistImage[] | null): ArtistImage | null {
   return images?.find((image) => image.width === 320) ?? images?.[0] ?? null;
@@ -29,7 +50,33 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
+function parseDateOnly(date: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatPerformance(performance: Performance): string {
+  if (performance.startTime) {
+    return performanceTimeFormatter.format(new Date(performance.startTime));
+  }
+
+  return weekdayFormatter.format(parseDateOnly(performance.date));
+}
+
+function groupPerformancesByArtist(performances: Performance[]): Map<string, Performance[]> {
+  const performancesByArtist = new Map<string, Performance[]>();
+
+  for (const performance of performances) {
+    const artistPerformances = performancesByArtist.get(performance.artistId) ?? [];
+    artistPerformances.push(performance);
+    performancesByArtist.set(performance.artistId, artistPerformances);
+  }
+
+  return performancesByArtist;
+}
+
 export default function App() {
+  const [selectedDate, setSelectedDate] = useState(ALL_DAYS);
   const callbackResult = new URLSearchParams(window.location.search).get("spotify");
   const callbackError =
     callbackResult === "denied"
@@ -39,7 +86,17 @@ export default function App() {
         : null;
   const statusQuery = useSpotifyStatusQuery();
   const artistsQuery = useArtistsQuery();
+  const performancesQuery = usePerformancesQuery();
   const disconnectMutation = useDisconnectSpotifyMutation();
+  const performancesByArtist = groupPerformancesByArtist(performancesQuery.data ?? []);
+  const performanceDates = [
+    ...new Set((performancesQuery.data ?? []).map((performance) => performance.date)),
+  ].sort();
+  const visibleArtists = artistsQuery.data?.filter(
+    (artist) =>
+      selectedDate === ALL_DAYS ||
+      performancesByArtist.get(artist.id)?.some((performance) => performance.date === selectedDate)
+  );
   const connectionError = callbackError
     ? callbackError
     : statusQuery.isError
@@ -101,39 +158,58 @@ export default function App() {
               <CardDescription>Outside Lands 2026 artists.</CardDescription>
             </CardHeader>
             <CardContent>
-              {artistsQuery.isError ? (
-                <p role="alert" className="text-destructive">
-                  Unable to load artists. Please try again later.
-                </p>
-              ) : artistsQuery.data ? (
-                <ItemGroup className="grid gap-3 sm:grid-cols-2">
-                  {artistsQuery.data.map((artist) => {
-                    const thumbnail = getThumbnail(artist.images);
+              <Tabs value={selectedDate} onValueChange={(value) => setSelectedDate(String(value))}>
+                <TabsList>
+                  <TabsTrigger value={ALL_DAYS}>All Days</TabsTrigger>
+                  {performanceDates.map((date) => (
+                    <TabsTrigger key={date} value={date}>
+                      {weekdayFormatter.format(parseDateOnly(date))}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                <TabsContent value={selectedDate}>
+                  {artistsQuery.isError ? (
+                    <p role="alert" className="text-destructive">
+                      Unable to load artists. Please try again later.
+                    </p>
+                  ) : visibleArtists ? (
+                    <ItemGroup className="grid gap-3 sm:grid-cols-2">
+                      {visibleArtists.map((artist) => {
+                        const thumbnail = getThumbnail(artist.images);
+                        const performanceSummary = performancesByArtist
+                          .get(artist.id)
+                          ?.map(formatPerformance)
+                          .join(", ");
 
-                    return (
-                      <Item key={artist.id} role="listitem" variant="outline" size="sm">
-                        <ItemMedia variant="image">
-                          {thumbnail ? (
-                            <img src={thumbnail.url} alt="" loading="lazy" />
-                          ) : (
-                            <span
-                              aria-hidden="true"
-                              className="flex size-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground"
-                            >
-                              {getInitials(artist.name)}
-                            </span>
-                          )}
-                        </ItemMedia>
-                        <ItemContent>
-                          <ItemTitle>{artist.name}</ItemTitle>
-                        </ItemContent>
-                      </Item>
-                    );
-                  })}
-                </ItemGroup>
-              ) : (
-                <p className="text-muted-foreground">Loading artists…</p>
-              )}
+                        return (
+                          <Item key={artist.id} role="listitem" variant="outline" size="sm">
+                            <ItemMedia variant="image">
+                              {thumbnail ? (
+                                <img src={thumbnail.url} alt="" loading="lazy" />
+                              ) : (
+                                <span
+                                  aria-hidden="true"
+                                  className="flex size-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground"
+                                >
+                                  {getInitials(artist.name)}
+                                </span>
+                              )}
+                            </ItemMedia>
+                            <ItemContent>
+                              <ItemTitle>{artist.name}</ItemTitle>
+                              {performanceSummary ? (
+                                <ItemDescription>{performanceSummary}</ItemDescription>
+                              ) : null}
+                            </ItemContent>
+                          </Item>
+                        );
+                      })}
+                    </ItemGroup>
+                  ) : (
+                    <p className="text-muted-foreground">Loading artists…</p>
+                  )}
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         ) : null}
