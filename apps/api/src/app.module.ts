@@ -14,6 +14,7 @@ import { CreateSpotifyUserTags1753900000000 } from "./database/migrations/175390
 import { RefactorSpotifySchema1754100000000 } from "./database/migrations/1754100000000-refactor-spotify-schema.js";
 import { PerformancesModule } from "./performances/performances.module.js";
 import { SpotifyModule } from "./spotify/spotify.module.js";
+import { TagsModule } from "./tags/tags.module.js";
 
 const DEFAULT_RATE_LIMIT = 100;
 const DEFAULT_RATE_LIMIT_TTL_MS = 60_000;
@@ -63,6 +64,7 @@ function positiveIntegerOrDefault(value: string | undefined, fallback: number): 
     ArtistsModule,
     PerformancesModule,
     SpotifyModule,
+    TagsModule,
   ],
   controllers: [AppController],
   providers: [

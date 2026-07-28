@@ -1,6 +1,16 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { BadRequestException, Controller, Delete, Get, Logger, Req, Res } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  Delete,
+  Get,
+  Logger,
+  NotFoundException,
+  Req,
+  Res,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { type Request, type Response } from "express";
@@ -8,11 +18,11 @@ import { Repository } from "typeorm";
 
 import { User } from "../users/entities/user.entity.js";
 import { apiBaseUrl } from "./api-base-url.js";
-import { SpotifyAccount } from "./entities/spotify-account.entity.js";
+import { SpotifyAccount, type SpotifySyncStatus } from "./entities/spotify-account.entity.js";
 import { SpotifyCredential } from "./entities/spotify-credential.entity.js";
 import { SpotifyApiService } from "./spotify-api.service.js";
 import { SpotifyIdentityService } from "./spotify-identity.service.js";
-import { SpotifySyncDispatcher } from "./spotify-sync.dispatcher.js";
+import { SpotifySyncCoordinator } from "./spotify-sync.coordinator.js";
 
 type SpotifyCallbackQuery = { code?: string; error?: string; state?: string };
 
@@ -24,7 +34,7 @@ export class SpotifyAuthController {
     private readonly config: ConfigService,
     private readonly spotifyApi: SpotifyApiService,
     private readonly identity: SpotifyIdentityService,
-    private readonly syncDispatcher: SpotifySyncDispatcher,
+    private readonly syncCoordinator: SpotifySyncCoordinator,
     @InjectRepository(SpotifyAccount)
     private readonly accounts: Repository<SpotifyAccount>,
     @InjectRepository(SpotifyCredential)
@@ -101,7 +111,7 @@ export class SpotifyAuthController {
     });
 
     try {
-      await this.syncDispatcher.dispatch(userId);
+      await this.syncCoordinator.queue(userId);
     } catch (error) {
       // The Spotify connection is already complete. A queue outage should not
       // invalidate it or prevent the user from returning to the application.
@@ -124,6 +134,28 @@ export class SpotifyAuthController {
     return account && hasCredentials
       ? { connected: true, displayName: account.displayName }
       : { connected: false };
+  }
+
+  @Get("sync-status")
+  async syncStatus(
+    @Req() request: Request
+  ): Promise<{ lastSyncStatus: SpotifySyncStatus | null; lastUpdate: string | null }> {
+    if (!request.session.userId) {
+      throw new UnauthorizedException("Spotify account is not connected");
+    }
+
+    const user = await this.users.findOneBy({ id: request.session.userId });
+    if (!user?.spotifyAccountId) {
+      throw new NotFoundException("Spotify account not found");
+    }
+
+    const account = await this.accounts.findOneBy({ id: user.spotifyAccountId });
+    if (!account) throw new NotFoundException("Spotify account not found");
+
+    return {
+      lastSyncStatus: account.lastSyncStatus,
+      lastUpdate: account.lastUpdate,
+    };
   }
 
   @Delete()

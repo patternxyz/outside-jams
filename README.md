@@ -46,6 +46,8 @@ The read-only API includes:
 
 - `GET /api/artists` and `GET /api/artists/:id`
 - `GET /api/performances` and `GET /api/performances/:id`
+- `GET /api/auth/spotify/sync-status` for the connected account's latest sync progress
+- `GET /api/tags` for the current user's tags grouped by artist
 
 Performance lists can be filtered with the `date`, `artistId`, `startTime`, and
 `location` query parameters. Dates use `YYYY-MM-DD`; start times use an ISO 8601

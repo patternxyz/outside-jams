@@ -9,6 +9,7 @@ import { SpotifyAuthController } from "./spotify-auth.controller.js";
 import { CloudTaskAuthGuard } from "./cloud-task-auth.guard.js";
 import { SpotifyIdentityService } from "./spotify-identity.service.js";
 import { SpotifySyncController } from "./spotify-sync.controller.js";
+import { SpotifySyncCoordinator } from "./spotify-sync.coordinator.js";
 import { SpotifySyncDispatcher } from "./spotify-sync.dispatcher.js";
 import { SpotifySyncService } from "./spotify-sync.service.js";
 import { SpotifyTokenService } from "./spotify-token.service.js";
@@ -21,6 +22,7 @@ import { TokenCipherService } from "./token-cipher.service.js";
     CloudTaskAuthGuard,
     SpotifyApiService,
     SpotifyIdentityService,
+    SpotifySyncCoordinator,
     SpotifySyncDispatcher,
     SpotifySyncService,
     SpotifyTokenService,

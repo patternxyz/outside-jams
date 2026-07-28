@@ -55,10 +55,10 @@ describe("SpotifyAuthController", () => {
   it("dispatches a sync after Spotify connection and session persistence succeed", async () => {
     const spotifyApi = {
       exchangeCode: vi.fn().mockResolvedValue({ accessToken: "token" }),
-      getProfile: vi.fn().mockResolvedValue({ id: "spotify-user" }),
+      getProfile: vi.fn().mockResolvedValue({ id: "spotify-user", displayName: "Listener" }),
     };
     const identity = { provision: vi.fn().mockResolvedValue("user-id") };
-    const syncDispatcher = { dispatch: vi.fn().mockResolvedValue(undefined) };
+    const syncCoordinator = { queue: vi.fn().mockResolvedValue(undefined) };
     const session = {
       spotifyOAuth: { codeVerifier: "verifier", state: "expected" },
       regenerate: (callback: (error?: Error) => void) => callback(),
@@ -70,7 +70,7 @@ describe("SpotifyAuthController", () => {
       new ConfigService({ API_BASE_URL: "https://api.example.test" }),
       spotifyApi as never,
       identity as never,
-      syncDispatcher as never,
+      syncCoordinator as never,
       {} as never,
       {} as never,
       {} as never
@@ -82,8 +82,34 @@ describe("SpotifyAuthController", () => {
     );
 
     expect(session.userId).toBe("user-id");
-    expect(syncDispatcher.dispatch).toHaveBeenCalledWith("user-id");
+    expect(syncCoordinator.queue).toHaveBeenCalledWith("user-id");
     expect(response.redirect).toHaveBeenCalledWith("/?spotify=connected");
+  });
+
+  it("returns sync progress for the connected account", async () => {
+    const users = {
+      findOneBy: vi.fn().mockResolvedValue({ spotifyAccountId: "spotify-user" }),
+    };
+    const accounts = {
+      findOneBy: vi.fn().mockResolvedValue({
+        lastSyncStatus: "started",
+        lastUpdate: "Fetched 20 top artists",
+      }),
+    };
+    const spotify = new SpotifyAuthController(
+      new ConfigService(),
+      {} as never,
+      {} as never,
+      {} as never,
+      accounts as never,
+      {} as never,
+      users as never
+    );
+
+    await expect(spotify.syncStatus({ session: { userId: "user-id" } } as never)).resolves.toEqual({
+      lastSyncStatus: "started",
+      lastUpdate: "Fetched 20 top artists",
+    });
   });
 
   it("deletes Spotify data and invalidates cached tokens on disconnect", async () => {

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import {
   type ArtistImage,
@@ -7,7 +8,10 @@ import {
   useDisconnectSpotifyMutation,
   usePerformancesQuery,
   useSpotifyStatusQuery,
+  useSpotifySyncStatusQuery,
+  useTagsQuery,
 } from "@/api/outside-jams";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,6 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const ALL_DAYS = "all";
+const SPOTIFY_STATUS_TOAST_ID = "spotify-status";
 
 const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "long" });
 const performanceTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -75,6 +80,10 @@ function groupPerformancesByArtist(performances: Performance[]): Map<string, Per
   return performancesByArtist;
 }
 
+function formatTag(tag: string): string {
+  return tag.charAt(0).toUpperCase() + tag.slice(1);
+}
+
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(ALL_DAYS);
   const callbackResult = new URLSearchParams(window.location.search).get("spotify");
@@ -85,10 +94,15 @@ export default function App() {
         ? "Spotify could not be connected. Please try again."
         : null;
   const statusQuery = useSpotifyStatusQuery();
+  const syncStatusQuery = useSpotifySyncStatusQuery(statusQuery.data?.connected === true);
+  const tagsQuery = useTagsQuery(syncStatusQuery.data?.lastSyncStatus === "completed");
   const artistsQuery = useArtistsQuery();
   const performancesQuery = usePerformancesQuery();
   const disconnectMutation = useDisconnectSpotifyMutation();
   const performancesByArtist = groupPerformancesByArtist(performancesQuery.data ?? []);
+  const tagsByArtist = new Map(
+    (tagsQuery.data ?? []).map((artistTags) => [artistTags.artistId, artistTags.tags])
+  );
   const performanceDates = [
     ...new Set((performancesQuery.data ?? []).map((performance) => performance.date)),
   ].sort();
@@ -97,13 +111,86 @@ export default function App() {
       selectedDate === ALL_DAYS ||
       performancesByArtist.get(artist.id)?.some((performance) => performance.date === selectedDate)
   );
-  const connectionError = callbackError
-    ? callbackError
-    : statusQuery.isError
-      ? "Unable to check your Spotify connection."
-      : disconnectMutation.isError
-        ? "Spotify could not be disconnected. Please try again."
-        : null;
+
+  useEffect(() => {
+    const options = { id: SPOTIFY_STATUS_TOAST_ID };
+
+    if (callbackError) {
+      toast.error(callbackError, options);
+      return;
+    }
+
+    if (disconnectMutation.isPending) {
+      toast.loading("Disconnecting Spotify…", options);
+      return;
+    }
+
+    if (disconnectMutation.isError) {
+      toast.error("Spotify could not be disconnected. Please try again.", options);
+      return;
+    }
+
+    if (statusQuery.isPending) {
+      toast.loading("Checking your Spotify connection…", options);
+      return;
+    }
+
+    if (statusQuery.isError) {
+      toast.error("Unable to check your Spotify connection.", options);
+      return;
+    }
+
+    if (!statusQuery.data.connected) {
+      toast.dismiss(SPOTIFY_STATUS_TOAST_ID);
+      return;
+    }
+
+    const connectedDescription = `Connected as ${statusQuery.data.displayName}.`;
+
+    if (syncStatusQuery.isPending) {
+      toast.loading("Preparing your Spotify sync…", {
+        ...options,
+        description: connectedDescription,
+      });
+      return;
+    }
+
+    if (syncStatusQuery.isError) {
+      toast.error("Unable to check your Spotify sync.", {
+        ...options,
+        description: connectedDescription,
+      });
+      return;
+    }
+
+    const syncStatus = syncStatusQuery.data.lastSyncStatus;
+    if (syncStatus === "completed") {
+      toast.success("Spotify sync completed.", {
+        ...options,
+        description: connectedDescription,
+      });
+    } else if (syncStatus === "failed") {
+      toast.error("Spotify sync failed.", {
+        ...options,
+        description: syncStatusQuery.data.lastUpdate ?? connectedDescription,
+      });
+    } else {
+      toast.loading("Syncing Spotify…", {
+        ...options,
+        description: syncStatusQuery.data.lastUpdate ?? "Waiting for sync to start…",
+      });
+    }
+  }, [
+    callbackError,
+    disconnectMutation.isError,
+    disconnectMutation.isPending,
+    statusQuery.data,
+    statusQuery.isError,
+    statusQuery.isPending,
+    syncStatusQuery.data,
+    syncStatusQuery.isError,
+    syncStatusQuery.isPending,
+  ]);
 
   function disconnectSpotify() {
     disconnectMutation.mutate(undefined, {
@@ -119,21 +206,6 @@ export default function App() {
             <CardTitle>Spotify</CardTitle>
             <CardDescription>Connect your account to personalize Outside Jams.</CardDescription>
           </CardHeader>
-          <CardContent>
-            {connectionError ? (
-              <p role="alert" className="text-destructive">
-                {connectionError}
-              </p>
-            ) : statusQuery.data?.connected ? (
-              <p>
-                Connected as <strong>{statusQuery.data.displayName}</strong>
-              </p>
-            ) : statusQuery.data ? (
-              <p className="text-muted-foreground">No Spotify account connected.</p>
-            ) : (
-              <p className="text-muted-foreground">Checking connection…</p>
-            )}
-          </CardContent>
           <CardFooter>
             {statusQuery.data?.connected ? (
               <Button
@@ -173,38 +245,53 @@ export default function App() {
                       Unable to load artists. Please try again later.
                     </p>
                   ) : visibleArtists ? (
-                    <ItemGroup className="grid gap-3 sm:grid-cols-2">
-                      {visibleArtists.map((artist) => {
-                        const thumbnail = getThumbnail(artist.images);
-                        const performanceSummary = performancesByArtist
-                          .get(artist.id)
-                          ?.map(formatPerformance)
-                          .join(", ");
+                    <div className="flex flex-col gap-3">
+                      {tagsQuery.isError ? (
+                        <p role="alert" className="text-destructive">
+                          Unable to load your artist tags.
+                        </p>
+                      ) : null}
+                      <ItemGroup className="grid gap-3 sm:grid-cols-2">
+                        {visibleArtists.map((artist) => {
+                          const thumbnail = getThumbnail(artist.images);
+                          const artistTags = tagsByArtist.get(artist.id) ?? [];
+                          const performanceSummary = performancesByArtist
+                            .get(artist.id)
+                            ?.map(formatPerformance)
+                            .join(", ");
 
-                        return (
-                          <Item key={artist.id} role="listitem" variant="outline" size="sm">
-                            <ItemMedia variant="image">
-                              {thumbnail ? (
-                                <img src={thumbnail.url} alt="" loading="lazy" />
-                              ) : (
-                                <span
-                                  aria-hidden="true"
-                                  className="flex size-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground"
-                                >
-                                  {getInitials(artist.name)}
-                                </span>
-                              )}
-                            </ItemMedia>
-                            <ItemContent>
-                              <ItemTitle>{artist.name}</ItemTitle>
-                              {performanceSummary ? (
-                                <ItemDescription>{performanceSummary}</ItemDescription>
-                              ) : null}
-                            </ItemContent>
-                          </Item>
-                        );
-                      })}
-                    </ItemGroup>
+                          return (
+                            <Item key={artist.id} role="listitem" variant="outline" size="sm">
+                              <ItemMedia variant="image">
+                                {thumbnail ? (
+                                  <img src={thumbnail.url} alt="" loading="lazy" />
+                                ) : (
+                                  <span
+                                    aria-hidden="true"
+                                    className="flex size-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground"
+                                  >
+                                    {getInitials(artist.name)}
+                                  </span>
+                                )}
+                              </ItemMedia>
+                              <ItemContent>
+                                <ItemTitle>
+                                  {artist.name}
+                                  {artistTags.map((tag) => (
+                                    <Badge key={tag} variant="secondary">
+                                      {formatTag(tag)}
+                                    </Badge>
+                                  ))}
+                                </ItemTitle>
+                                {performanceSummary ? (
+                                  <ItemDescription>{performanceSummary}</ItemDescription>
+                                ) : null}
+                              </ItemContent>
+                            </Item>
+                          );
+                        })}
+                      </ItemGroup>
+                    </div>
                   ) : (
                     <p className="text-muted-foreground">Loading artists…</p>
                   )}

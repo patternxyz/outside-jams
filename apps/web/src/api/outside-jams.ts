@@ -5,6 +5,16 @@ export type SpotifyStatus = {
   displayName?: string;
 };
 
+export type SpotifySyncStatus = {
+  lastSyncStatus: "started" | "completed" | "failed" | null;
+  lastUpdate: string | null;
+};
+
+export type ArtistTags = {
+  artistId: string;
+  tags: string[];
+};
+
 export type ArtistImage = {
   url: string;
   height: number | null;
@@ -30,6 +40,8 @@ const queryKeys = {
   artists: ["artists"] as const,
   performances: ["performances"] as const,
   spotifyStatus: ["spotify", "status"] as const,
+  spotifySyncStatus: ["spotify", "sync-status"] as const,
+  tags: ["tags"] as const,
 };
 
 export const queryClient = new QueryClient();
@@ -51,6 +63,27 @@ export function useSpotifyStatusQuery() {
   return useQuery({
     queryKey: queryKeys.spotifyStatus,
     queryFn: ({ signal }) => requestJson<SpotifyStatus>("/api/auth/spotify/status", { signal }),
+  });
+}
+
+export function useSpotifySyncStatusQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.spotifySyncStatus,
+    queryFn: ({ signal }) =>
+      requestJson<SpotifySyncStatus>("/api/auth/spotify/sync-status", { signal }),
+    enabled,
+    refetchInterval: (query) => {
+      const status = query.state.data?.lastSyncStatus;
+      return status === "completed" || status === "failed" ? false : 1_500;
+    },
+  });
+}
+
+export function useTagsQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.tags,
+    queryFn: ({ signal }) => requestJson<ArtistTags[]>("/api/tags", { signal }),
+    enabled,
   });
 }
 
@@ -80,6 +113,8 @@ export function useDisconnectSpotifyMutation() {
       }),
     onSuccess: (status) => {
       client.setQueryData(queryKeys.spotifyStatus, status);
+      client.removeQueries({ queryKey: queryKeys.spotifySyncStatus });
+      client.removeQueries({ queryKey: queryKeys.tags });
     },
   });
 }
