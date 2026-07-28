@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpotifyApiService } from "./spotify-api.service.js";
 
 describe("SpotifyApiService", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("preserves the current refresh token when Spotify omits a replacement", async () => {
     vi.stubGlobal(
@@ -24,5 +27,63 @@ describe("SpotifyApiService", () => {
       refreshToken: "current-refresh",
       scopes: ["profile"],
     });
+  });
+
+  it("loads every long-term top artist page with a limit of 50", async () => {
+    const next =
+      "https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=50&offset=50";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ items: [{ id: "artist-1" }], next }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ items: [{ id: "artist-2" }, { id: "artist-1" }], next: null }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new SpotifyApiService(
+      new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
+    );
+
+    await expect(service.getTopArtistIds("access-token")).resolves.toEqual([
+      "artist-1",
+      "artist-2",
+    ]);
+
+    const firstUrl = new URL(fetchMock.mock.calls[0][0] as URL);
+    expect(firstUrl.pathname).toBe("/v1/me/top/artists");
+    expect(firstUrl.searchParams.get("limit")).toBe("50");
+    expect(firstUrl.searchParams.get("time_range")).toBe("long_term");
+    expect(fetchMock.mock.calls[1][0].toString()).toBe(next);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for Spotify's Retry-After duration before retrying a rate-limited page", async () => {
+    vi.useFakeTimers();
+    const headers = { get: vi.fn().mockReturnValue("2") };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 429, headers })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [{ id: "artist-1" }], next: null }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new SpotifyApiService(
+      new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
+    );
+
+    const topArtists = service.getTopArtistIds("access-token");
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(topArtists).resolves.toEqual(["artist-1"]);
+    expect(headers.get).toHaveBeenCalledWith("retry-after");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

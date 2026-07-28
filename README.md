@@ -164,6 +164,12 @@ checked by the application in addition to its Cloud Run IAM grant. In local
 development (`NODE_ENV=development`), the same sync runs asynchronously in the
 API process and does not require Google Cloud credentials.
 
+The sync requests Spotify's `user-top-read` permission, loads all pages of the
+user's long-term top artists, and atomically stores every returned Spotify artist
+ID in `spotify.top_artists.artist_id`. These values are not cross-referenced with
+`public.artists`. Accounts connected before this permission was added must
+reconnect to grant the new scope.
+
 The script also prints ready-to-run `gh variable set` and `gh secret set`
 commands. If using those commands, first install and authenticate the GitHub CLI:
 

@@ -48,6 +48,8 @@ export class SpotifyAuthController {
       code_challenge_method: "S256",
       redirect_uri: redirectUri,
       response_type: "code",
+      scope: "user-top-read",
+      show_dialog: "true",
       state,
     }).toString();
 
@@ -127,6 +129,7 @@ export class SpotifyAuthController {
 
     await this.accounts.delete({ userId });
     this.tokenService.invalidate(userId);
+    delete request.session.userId;
     return { connected: false };
   }
 

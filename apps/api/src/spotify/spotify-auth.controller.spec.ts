@@ -27,6 +27,8 @@ describe("SpotifyAuthController", () => {
     expect(target.origin).toBe("https://accounts.spotify.com");
     expect(target.searchParams.get("response_type")).toBe("code");
     expect(target.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(target.searchParams.get("scope")).toBe("user-top-read");
+    expect(target.searchParams.get("show_dialog")).toBe("true");
     expect(target.searchParams.get("redirect_uri")).toBe(
       "https://proxy.example.test/api/auth/spotify/callback"
     );
@@ -96,11 +98,13 @@ describe("SpotifyAuthController", () => {
       accounts as never,
       {} as never
     );
+    const request = { session: { userId: "user-1" as string | undefined } };
 
-    await expect(spotify.disconnect({ session: { userId: "user-1" } } as never)).resolves.toEqual({
+    await expect(spotify.disconnect(request as never)).resolves.toEqual({
       connected: false,
     });
     expect(accounts.delete).toHaveBeenCalledWith({ userId: "user-1" });
     expect(tokenService.invalidate).toHaveBeenCalledWith("user-1");
+    expect(request.session.userId).toBeUndefined();
   });
 });
