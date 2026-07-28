@@ -71,6 +71,31 @@ export class SpotifySyncService {
           [userId, followedArtistIds]
         );
         await this.updateProgress(userId, `Saved ${followedArtistIds.length} followed artists`);
+
+        stage = "projecting artist tags";
+        await manager.query("DELETE FROM spotify.user_tags WHERE user_id = $1", [userId]);
+        await manager.query(
+          `INSERT INTO spotify.user_tags (user_id, artist_id, tags)
+           SELECT user_id, artist_id, array_agg(tag ORDER BY tag)
+           FROM (
+             SELECT fa.user_id, artist.id AS artist_id, 'following'::text AS tag
+             FROM spotify.followed_artists AS fa
+             JOIN public.artists AS artist
+               ON artist.spotify_id = fa.artist_id
+             WHERE fa.user_id = $1
+
+             UNION ALL
+
+             SELECT ta.user_id, artist.id AS artist_id, 'top'::text AS tag
+             FROM spotify.top_artists AS ta
+             JOIN public.artists AS artist
+               ON artist.spotify_id = ta.artist_id
+             WHERE ta.user_id = $1
+           ) AS artist_tags
+           GROUP BY user_id, artist_id`,
+          [userId]
+        );
+        await this.updateProgress(userId, "Projected artist tags");
       });
 
       stage = "completing sync";

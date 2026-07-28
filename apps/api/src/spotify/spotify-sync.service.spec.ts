@@ -31,12 +31,12 @@ describe("SpotifySyncService", () => {
     return { accounts, dataSource, manager, service, spotifyApi, tokenService };
   }
 
-  it("replaces top then followed artists sequentially and completes in a transaction", async () => {
+  it("replaces artist snapshots, projects tags, and completes in a transaction", async () => {
     const { accounts, dataSource, manager, service, spotifyApi, tokenService } = dependencies();
 
     await service.sync(userId);
 
-    expect(accounts.update).toHaveBeenCalledTimes(6);
+    expect(accounts.update).toHaveBeenCalledTimes(7);
     expect(accounts.update).toHaveBeenNthCalledWith(
       1,
       { userId },
@@ -75,6 +75,11 @@ describe("SpotifySyncService", () => {
     expect(accounts.update).toHaveBeenNthCalledWith(
       6,
       { userId },
+      expect.objectContaining({ lastUpdate: "Projected artist tags", updatedAt: expect.any(Date) })
+    );
+    expect(accounts.update).toHaveBeenNthCalledWith(
+      7,
+      { userId },
       expect.objectContaining({
         lastSyncStatus: "completed",
         lastUpdate: "Sync completed",
@@ -88,7 +93,7 @@ describe("SpotifySyncService", () => {
       spotifyApi.getFollowedArtistIds.mock.invocationCallOrder[0]
     );
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    expect(manager.query).toHaveBeenCalledTimes(2);
+    expect(manager.query).toHaveBeenCalledTimes(4);
     expect(manager.query).toHaveBeenNthCalledWith(
       1,
       expect.stringContaining("spotify.top_artists"),
@@ -99,10 +104,23 @@ describe("SpotifySyncService", () => {
       expect.stringContaining("spotify.followed_artists"),
       [userId, ["spotify-3", "spotify-4"]]
     );
+    expect(manager.query).toHaveBeenNthCalledWith(
+      3,
+      "DELETE FROM spotify.user_tags WHERE user_id = $1",
+      [userId]
+    );
+    expect(manager.query).toHaveBeenNthCalledWith(
+      4,
+      expect.stringContaining("INSERT INTO spotify.user_tags"),
+      [userId]
+    );
     expect(manager.query.mock.calls[0][0]).toContain("unnest($2::text[])");
     expect(manager.query.mock.calls[0][0]).not.toContain("public.artists");
     expect(manager.query.mock.calls[1][0]).toContain("unnest($2::text[])");
     expect(manager.query.mock.calls[1][0]).not.toContain("public.artists");
+    expect(manager.query.mock.calls[3][0]).toContain("WHERE fa.user_id = $1");
+    expect(manager.query.mock.calls[3][0]).toContain("WHERE ta.user_id = $1");
+    expect(manager.query.mock.calls[3][0]).toContain("array_agg(tag ORDER BY tag)");
     expect(manager.update).not.toHaveBeenCalled();
     expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
       accounts.update.mock.invocationCallOrder[3]
@@ -112,6 +130,15 @@ describe("SpotifySyncService", () => {
     );
     expect(manager.query.mock.invocationCallOrder[1]).toBeLessThan(
       accounts.update.mock.invocationCallOrder[4]
+    );
+    expect(accounts.update.mock.invocationCallOrder[4]).toBeLessThan(
+      manager.query.mock.invocationCallOrder[2]
+    );
+    expect(manager.query.mock.invocationCallOrder[2]).toBeLessThan(
+      manager.query.mock.invocationCallOrder[3]
+    );
+    expect(manager.query.mock.invocationCallOrder[3]).toBeLessThan(
+      accounts.update.mock.invocationCallOrder[5]
     );
   });
 
@@ -173,6 +200,27 @@ describe("SpotifySyncService", () => {
       expect.objectContaining({
         lastSyncStatus: "failed",
         lastUpdate: "Sync failed while saving top artists",
+        updatedAt: expect.any(Date),
+      })
+    );
+  });
+
+  it("records the projection stage when rebuilding artist tags fails", async () => {
+    const { accounts, manager, service } = dependencies();
+    const failure = new Error("projection failed");
+    manager.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(failure);
+
+    await expect(service.sync(userId)).rejects.toBe(failure);
+
+    expect(accounts.update).toHaveBeenLastCalledWith(
+      { userId },
+      expect.objectContaining({
+        lastSyncStatus: "failed",
+        lastUpdate: "Sync failed while projecting artist tags",
         updatedAt: expect.any(Date),
       })
     );
