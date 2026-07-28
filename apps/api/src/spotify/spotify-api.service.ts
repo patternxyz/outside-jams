@@ -15,13 +15,18 @@ type SpotifyProfileResponse = {
   display_name: string | null;
 };
 
-type SpotifyTopArtistsPage = {
+type SpotifyArtistsPage = {
   items: Array<{ id: string }>;
   next: string | null;
 };
 
+type SpotifyFollowedArtistsResponse = {
+  artists: SpotifyArtistsPage;
+};
+
 const SPOTIFY_API_ORIGIN = "https://api.spotify.com";
 const TOP_ARTISTS_PATH = "/v1/me/top/artists";
+const FOLLOWED_ARTISTS_PATH = "/v1/me/following";
 const DEFAULT_RETRY_AFTER_SECONDS = 1;
 const MAX_RATE_LIMIT_RETRIES = 3;
 
@@ -99,7 +104,7 @@ export class SpotifyApiService {
       }
       visited.add(url.toString());
 
-      const response = await this.requestTopArtistsPage(url, accessToken);
+      const response = await this.requestPage(url, accessToken);
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
           throw new UnauthorizedException(
@@ -109,7 +114,7 @@ export class SpotifyApiService {
         throw new BadGatewayException(`Spotify top artists request failed (${response.status})`);
       }
 
-      const page = (await response.json()) as Partial<SpotifyTopArtistsPage>;
+      const page = (await response.json()) as Partial<SpotifyArtistsPage>;
       if (!Array.isArray(page.items) || (page.next !== null && typeof page.next !== "string")) {
         throw new BadGatewayException("Spotify returned an invalid top artists response");
       }
@@ -122,7 +127,60 @@ export class SpotifyApiService {
     return [...artistIds];
   }
 
-  private async requestTopArtistsPage(url: URL, accessToken: string): Promise<Response> {
+  async getFollowedArtistIds(accessToken: string): Promise<string[]> {
+    const firstPage = new URL(FOLLOWED_ARTISTS_PATH, SPOTIFY_API_ORIGIN);
+    firstPage.search = new URLSearchParams({ limit: "50", type: "artist" }).toString();
+
+    const artistIds = new Set<string>();
+    const visited = new Set<string>();
+    let next: string | null = firstPage.toString();
+
+    while (next !== null) {
+      let url: URL;
+      try {
+        url = new URL(next);
+      } catch {
+        throw new BadGatewayException("Spotify returned an invalid followed artists page URL");
+      }
+      if (url.origin !== SPOTIFY_API_ORIGIN || url.pathname !== FOLLOWED_ARTISTS_PATH) {
+        throw new BadGatewayException("Spotify returned an invalid followed artists page URL");
+      }
+      if (visited.has(url.toString())) {
+        throw new BadGatewayException("Spotify returned a repeated followed artists page URL");
+      }
+      visited.add(url.toString());
+
+      const response = await this.requestPage(url, accessToken);
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new UnauthorizedException(
+            `Spotify followed artists request failed (${response.status})`
+          );
+        }
+        throw new BadGatewayException(
+          `Spotify followed artists request failed (${response.status})`
+        );
+      }
+
+      const body = (await response.json()) as Partial<SpotifyFollowedArtistsResponse>;
+      const page = body.artists;
+      if (
+        !page ||
+        !Array.isArray(page.items) ||
+        (page.next !== null && typeof page.next !== "string")
+      ) {
+        throw new BadGatewayException("Spotify returned an invalid followed artists response");
+      }
+      for (const artist of page.items) {
+        if (artist && typeof artist.id === "string" && artist.id) artistIds.add(artist.id);
+      }
+      next = page.next;
+    }
+
+    return [...artistIds];
+  }
+
+  private async requestPage(url: URL, accessToken: string): Promise<Response> {
     for (let retry = 0; ; retry += 1) {
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },

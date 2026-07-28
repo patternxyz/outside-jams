@@ -86,4 +86,34 @@ describe("SpotifyApiService", () => {
     expect(headers.get).toHaveBeenCalledWith("retry-after");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("loads every followed artist page with a limit of 50", async () => {
+    const next = "https://api.spotify.com/v1/me/following?type=artist&limit=50&after=artist-1";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ artists: { items: [{ id: "artist-1" }], next } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ artists: { items: [{ id: "artist-2" }], next: null } }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new SpotifyApiService(
+      new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
+    );
+
+    await expect(service.getFollowedArtistIds("access-token")).resolves.toEqual([
+      "artist-1",
+      "artist-2",
+    ]);
+
+    const firstUrl = new URL(fetchMock.mock.calls[0][0] as URL);
+    expect(firstUrl.pathname).toBe("/v1/me/following");
+    expect(firstUrl.searchParams.get("type")).toBe("artist");
+    expect(firstUrl.searchParams.get("limit")).toBe("50");
+    expect(fetchMock.mock.calls[1][0].toString()).toBe(next);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

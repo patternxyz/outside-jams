@@ -48,7 +48,7 @@ export class SpotifyAuthController {
       code_challenge_method: "S256",
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: "user-top-read",
+      scope: "user-top-read user-follow-read",
       show_dialog: "true",
       state,
     }).toString();

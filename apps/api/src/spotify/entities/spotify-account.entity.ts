@@ -19,6 +19,9 @@ export class SpotifyAccount {
   @Column({ name: "last_sync_status", type: "text", nullable: true })
   lastSyncStatus!: SpotifySyncStatus | null;
 
+  @Column({ name: "last_update", type: "text", nullable: true })
+  lastUpdate!: string | null;
+
   @Column({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 
