@@ -29,6 +29,33 @@ describe("SpotifyApiService", () => {
     });
   });
 
+  it("maps the current user's name and first profile image", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            id: "spotify-user",
+            display_name: " Listener ",
+            images: [
+              { url: "https://i.scdn.co/image/profile-large" },
+              { url: "https://i.scdn.co/image/profile-small" },
+            ],
+          }),
+      })
+    );
+    const service = new SpotifyApiService(
+      new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
+    );
+
+    await expect(service.getProfile("access-token")).resolves.toEqual({
+      id: "spotify-user",
+      displayName: "Listener",
+      image: "https://i.scdn.co/image/profile-large",
+    });
+  });
+
   it("loads every long-term top artist page with a limit of 50", async () => {
     const next =
       "https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=50&offset=50";

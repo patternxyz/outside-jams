@@ -7,10 +7,12 @@ import {
   useArtistsQuery,
   useDisconnectSpotifyMutation,
   usePerformancesQuery,
+  useSpotifyProfileQuery,
   useSpotifyStatusQuery,
   useSpotifySyncStatusQuery,
   useTagsQuery,
 } from "@/api/outside-jams";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +33,13 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Popover,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const MY_ARTISTS = "my-artists";
 const SPOTIFY_STATUS_TOAST_ID = "spotify-status";
@@ -95,11 +104,14 @@ export default function App() {
         ? "Spotify could not be connected. Please try again."
         : null;
   const statusQuery = useSpotifyStatusQuery();
+  const profileQuery = useSpotifyProfileQuery(statusQuery.data?.connected === true);
   const syncStatusQuery = useSpotifySyncStatusQuery(statusQuery.data?.connected === true);
   const tagsQuery = useTagsQuery(syncStatusQuery.data?.lastSyncStatus === "completed");
   const artistsQuery = useArtistsQuery();
   const performancesQuery = usePerformancesQuery();
   const disconnectMutation = useDisconnectSpotifyMutation();
+  const profileName = profileQuery.data?.name ?? statusQuery.data?.displayName ?? "Spotify user";
+  const profileImage = profileQuery.data?.image ?? null;
   const syncStatus = syncStatusQuery.data?.lastSyncStatus;
   const isSyncInProgress =
     syncStatusQuery.isPending || (syncStatus !== "completed" && syncStatus !== "failed");
@@ -207,28 +219,49 @@ export default function App() {
 
   return (
     <main className="min-h-svh p-6">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-        <Card className="max-w-2xl">
-          <CardHeader>
-            <CardTitle>Spotify</CardTitle>
-            <CardDescription>Connect your account to personalize Outside Jams.</CardDescription>
-          </CardHeader>
-          <CardFooter>
-            {statusQuery.data?.connected ? (
-              <Button
-                variant="destructive"
-                disabled={disconnectMutation.isPending}
-                onClick={disconnectSpotify}
+      <div className="mx-auto flex w-full max-w-8xl flex-col gap-6">
+        {statusQuery.data?.connected ? (
+          <div className="flex justify-end">
+            <Popover>
+              <PopoverTrigger
+                aria-label={`Open account menu for ${profileName}`}
+                render={<Button variant="outline" size="lg" className="rounded-full pr-0.5" />}
               >
-                {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect Spotify"}
-              </Button>
-            ) : (
-              <Button onClick={() => window.location.assign("/api/auth/spotify")}>
-                Connect Spotify
-              </Button>
-            )}
-          </CardFooter>
-        </Card>
+                <span>{profileName}</span>
+                <Avatar size="sm" className="mx-1">
+                  {profileImage ? <AvatarImage src={profileImage} alt="" /> : null}
+                  <AvatarFallback>{getInitials(profileName)}</AvatarFallback>
+                </Avatar>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-48">
+                <Button
+                  variant="destructive"
+                  disabled={disconnectMutation.isPending}
+                  onClick={disconnectSpotify}
+                  className="w-full justify-start"
+                >
+                  {disconnectMutation.isPending ? "Disconnecting…" : `Disconnect ${profileName}`}
+                </Button>
+              </PopoverContent>
+            </Popover>
+          </div>
+        ) : null}
+
+        {!statusQuery.data?.connected ? (
+          <div className="flex min-h-[calc(100svh-3rem)] items-center justify-center">
+            <Card className="w-full max-w-[300px]">
+              <CardHeader className="text-center">
+                <CardTitle>Spotify</CardTitle>
+                <CardDescription>Connect your account to personalize Outside Jams.</CardDescription>
+              </CardHeader>
+              <CardFooter className="justify-center">
+                <Button onClick={() => window.location.assign("/api/auth/spotify")}>
+                  Connect Spotify
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+        ) : null}
 
         {statusQuery.data?.connected ? (
           <Card>
@@ -240,7 +273,13 @@ export default function App() {
               <Tabs value={selectedDate} onValueChange={(value) => setSelectedDate(String(value))}>
                 <div className="flex w-full justify-center pb-12">
                   <TabsList size="lg">
-                    <TabsTrigger value={MY_ARTISTS}>My Artists</TabsTrigger>
+                    <TabsTrigger value={MY_ARTISTS}>
+                      <Avatar size="sm">
+                        {profileImage ? <AvatarImage src={profileImage} alt="" /> : null}
+                        <AvatarFallback>{getInitials(profileName)}</AvatarFallback>
+                      </Avatar>
+                      My Artists
+                    </TabsTrigger>
                     {performanceDates.map((date) => (
                       <TabsTrigger key={date} value={date}>
                         {weekdayFormatter.format(parseDateOnly(date))}

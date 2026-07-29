@@ -17,6 +17,7 @@ type SpotifyTokenResponse = {
 type SpotifyProfileResponse = {
   id: string;
   display_name: string | null;
+  images: Array<{ url: string }>;
 };
 
 type SpotifyArtistsPage = {
@@ -93,7 +94,14 @@ export class SpotifyApiService {
       throw new BadGatewayException(`Spotify profile request failed (${response.status})`);
     }
     const profile = (await response.json()) as SpotifyProfileResponse;
-    return { id: profile.id, displayName: profile.display_name?.trim() || "Spotify user" };
+    const image = Array.isArray(profile.images)
+      ? profile.images.find((candidate) => typeof candidate?.url === "string" && candidate.url)?.url
+      : undefined;
+    return {
+      id: profile.id,
+      displayName: profile.display_name?.trim() || "Spotify user",
+      image: image ?? null,
+    };
   }
 
   async getTopArtistIds(accessToken: string): Promise<string[]> {

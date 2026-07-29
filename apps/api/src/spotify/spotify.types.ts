@@ -8,6 +8,7 @@ export type SpotifyTokens = {
 export type SpotifyProfile = {
   id: string;
   displayName: string;
+  image: string | null;
 };
 
 export type SpotifySavedTrack = {

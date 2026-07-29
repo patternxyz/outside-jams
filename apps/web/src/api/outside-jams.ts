@@ -10,6 +10,11 @@ export type SpotifySyncStatus = {
   lastUpdate: string | null;
 };
 
+export type SpotifyProfile = {
+  name: string;
+  image: string | null;
+};
+
 export type ArtistTags = {
   artistId: string;
   tags: string[];
@@ -40,6 +45,7 @@ const queryKeys = {
   artists: ["artists"] as const,
   performances: ["performances"] as const,
   spotifyStatus: ["spotify", "status"] as const,
+  spotifyProfile: ["spotify", "profile"] as const,
   spotifySyncStatus: ["spotify", "sync-status"] as const,
   tags: ["tags"] as const,
 };
@@ -79,6 +85,14 @@ export function useSpotifySyncStatusQuery(enabled: boolean) {
   });
 }
 
+export function useSpotifyProfileQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.spotifyProfile,
+    queryFn: ({ signal }) => requestJson<SpotifyProfile>("/api/auth/spotify/profile", { signal }),
+    enabled,
+  });
+}
+
 export function useTagsQuery(enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.tags,
@@ -113,6 +127,7 @@ export function useDisconnectSpotifyMutation() {
       }),
     onSuccess: (status) => {
       client.setQueryData(queryKeys.spotifyStatus, status);
+      client.removeQueries({ queryKey: queryKeys.spotifyProfile });
       client.removeQueries({ queryKey: queryKeys.spotifySyncStatus });
       client.removeQueries({ queryKey: queryKeys.tags });
     },

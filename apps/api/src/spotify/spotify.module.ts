@@ -8,6 +8,7 @@ import { SpotifyApiService } from "./spotify-api.service.js";
 import { SpotifyAuthController } from "./spotify-auth.controller.js";
 import { CloudTaskAuthGuard } from "./cloud-task-auth.guard.js";
 import { SpotifyIdentityService } from "./spotify-identity.service.js";
+import { SpotifyProfileController } from "./spotify-profile.controller.js";
 import { SpotifySyncController } from "./spotify-sync.controller.js";
 import { SpotifySyncCoordinator } from "./spotify-sync.coordinator.js";
 import { SpotifySyncDispatcher } from "./spotify-sync.dispatcher.js";
@@ -17,7 +18,7 @@ import { TokenCipherService } from "./token-cipher.service.js";
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, SpotifyAccount, SpotifyCredential])],
-  controllers: [SpotifyAuthController, SpotifySyncController],
+  controllers: [SpotifyAuthController, SpotifyProfileController, SpotifySyncController],
   providers: [
     CloudTaskAuthGuard,
     SpotifyApiService,

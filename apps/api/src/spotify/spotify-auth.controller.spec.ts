@@ -57,7 +57,11 @@ describe("SpotifyAuthController", () => {
   it("dispatches a sync after Spotify connection and session persistence succeed", async () => {
     const spotifyApi = {
       exchangeCode: vi.fn().mockResolvedValue({ accessToken: "token" }),
-      getProfile: vi.fn().mockResolvedValue({ id: "spotify-user", displayName: "Listener" }),
+      getProfile: vi.fn().mockResolvedValue({
+        id: "spotify-user",
+        displayName: "Listener",
+        image: null,
+      }),
     };
     const identity = { provision: vi.fn().mockResolvedValue("user-id") };
     const syncCoordinator = { queue: vi.fn().mockResolvedValue(undefined) };
