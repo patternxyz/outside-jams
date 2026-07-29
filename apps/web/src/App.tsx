@@ -21,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import {
   Item,
   ItemContent,
@@ -31,7 +32,7 @@ import {
 } from "@/components/ui/item";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const ALL_DAYS = "all";
+const MY_ARTISTS = "my-artists";
 const SPOTIFY_STATUS_TOAST_ID = "spotify-status";
 
 const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "long" });
@@ -85,7 +86,7 @@ function formatTag(tag: string): string {
 }
 
 export default function App() {
-  const [selectedDate, setSelectedDate] = useState(ALL_DAYS);
+  const [selectedDate, setSelectedDate] = useState(MY_ARTISTS);
   const callbackResult = new URLSearchParams(window.location.search).get("spotify");
   const callbackError =
     callbackResult === "denied"
@@ -99,6 +100,9 @@ export default function App() {
   const artistsQuery = useArtistsQuery();
   const performancesQuery = usePerformancesQuery();
   const disconnectMutation = useDisconnectSpotifyMutation();
+  const syncStatus = syncStatusQuery.data?.lastSyncStatus;
+  const isSyncInProgress =
+    syncStatusQuery.isPending || (syncStatus !== "completed" && syncStatus !== "failed");
   const performancesByArtist = groupPerformancesByArtist(performancesQuery.data ?? []);
   const tagsByArtist = new Map(
     (tagsQuery.data ?? []).map((artistTags) => [artistTags.artistId, artistTags.tags])
@@ -108,8 +112,11 @@ export default function App() {
   ].sort();
   const visibleArtists = artistsQuery.data?.filter(
     (artist) =>
-      selectedDate === ALL_DAYS ||
-      performancesByArtist.get(artist.id)?.some((performance) => performance.date === selectedDate)
+      (selectedDate === MY_ARTISTS && (tagsByArtist.get(artist.id)?.length ?? 0) > 0) ||
+      (selectedDate !== MY_ARTISTS &&
+        performancesByArtist
+          .get(artist.id)
+          ?.some((performance) => performance.date === selectedDate))
   );
 
   useEffect(() => {
@@ -233,7 +240,7 @@ export default function App() {
               <Tabs value={selectedDate} onValueChange={(value) => setSelectedDate(String(value))}>
                 <div className="flex w-full justify-center pb-12">
                   <TabsList size="lg">
-                    <TabsTrigger value={ALL_DAYS}>All Days</TabsTrigger>
+                    <TabsTrigger value={MY_ARTISTS}>My Artists</TabsTrigger>
                     {performanceDates.map((date) => (
                       <TabsTrigger key={date} value={date}>
                         {weekdayFormatter.format(parseDateOnly(date))}
@@ -242,10 +249,28 @@ export default function App() {
                   </TabsList>
                 </div>
                 <TabsContent value={selectedDate}>
-                  {artistsQuery.isError ? (
+                  {selectedDate === MY_ARTISTS && isSyncInProgress ? (
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className="flex min-h-64 items-center justify-center text-center text-muted-foreground"
+                    >
+                      Finding your Spotify artists who are performing...
+                    </p>
+                  ) : artistsQuery.isError ? (
                     <p role="alert" className="text-destructive">
                       Unable to load artists. Please try again later.
                     </p>
+                  ) : selectedDate === MY_ARTISTS &&
+                    tagsQuery.isSuccess &&
+                    visibleArtists?.length === 0 ? (
+                    <Empty className="min-h-64">
+                      <EmptyHeader>
+                        <EmptyDescription>
+                          None of your Spotify artists are performing :( Let&apos;s change that!
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
                   ) : visibleArtists ? (
                     <div className="flex flex-col gap-3">
                       {tagsQuery.isError ? (
