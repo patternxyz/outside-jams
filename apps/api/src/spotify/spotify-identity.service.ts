@@ -86,6 +86,7 @@ export class SpotifyIdentityService {
       await manager.query("DELETE FROM spotify.followed_artists WHERE account_id = $1", [
         accountId,
       ]);
+      await manager.query("DELETE FROM spotify.saved WHERE account_id = $1", [accountId]);
     });
 
     this.tokenService.invalidate(userId);

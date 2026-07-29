@@ -27,7 +27,9 @@ describe("SpotifyAuthController", () => {
     expect(target.origin).toBe("https://accounts.spotify.com");
     expect(target.searchParams.get("response_type")).toBe("code");
     expect(target.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(target.searchParams.get("scope")).toBe("user-top-read user-follow-read");
+    expect(target.searchParams.get("scope")).toBe(
+      "user-top-read user-follow-read user-library-read"
+    );
     expect(target.searchParams.get("show_dialog")).toBe("true");
     expect(target.searchParams.get("redirect_uri")).toBe(
       "https://proxy.example.test/api/auth/spotify/callback"

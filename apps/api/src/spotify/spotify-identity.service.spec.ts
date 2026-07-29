@@ -29,6 +29,7 @@ describe("SpotifyIdentityService", () => {
       ["DELETE FROM spotify.credentials WHERE account_id = $1", ["spotify-user-1"]],
       ["DELETE FROM spotify.top_artists WHERE account_id = $1", ["spotify-user-1"]],
       ["DELETE FROM spotify.followed_artists WHERE account_id = $1", ["spotify-user-1"]],
+      ["DELETE FROM spotify.saved WHERE account_id = $1", ["spotify-user-1"]],
     ]);
     expect(manager.query.mock.calls.flatMap(([query]) => query)).not.toContain(
       expect.stringContaining("DELETE FROM spotify.accounts")

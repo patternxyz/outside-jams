@@ -10,6 +10,11 @@ export type SpotifyProfile = {
   displayName: string;
 };
 
+export type SpotifySavedTrack = {
+  trackId: string;
+  artistIds: string[];
+};
+
 export type CachedSpotifyTokens = SpotifyTokens & {
   userId: string;
   accountId: string;

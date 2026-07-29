@@ -51,6 +51,15 @@ export class SpotifySyncService {
       const followedArtistIds = await this.spotifyApi.getFollowedArtistIds(accessToken);
       await this.updateProgress(accountId, `Fetched ${followedArtistIds.length} followed artists`);
 
+      stage = "fetching saved tracks";
+      const savedTracks = await this.spotifyApi.getSavedTracks(accessToken);
+      await this.updateProgress(accountId, `Fetched ${savedTracks.length} saved tracks`);
+
+      const savedTrackIds = savedTracks.map(({ trackId }) => trackId);
+      const trackArtistPairs = savedTracks.flatMap(({ trackId, artistIds }) =>
+        artistIds.map((artistId) => ({ trackId, artistId }))
+      );
+
       stage = "saving top artists";
       await this.dataSource.transaction(async (manager) => {
         await manager.query(
@@ -82,11 +91,37 @@ export class SpotifySyncService {
         );
         await this.updateProgress(accountId, `Saved ${followedArtistIds.length} followed artists`);
 
+        stage = "saving saved tracks";
+        await manager.query(
+          `INSERT INTO spotify.tracks (track_id, artist_id)
+           SELECT DISTINCT track.track_id, track.artist_id
+           FROM unnest($1::text[], $2::text[]) AS track(track_id, artist_id)
+           WHERE track.track_id <> '' AND track.artist_id <> ''
+           ON CONFLICT (track_id, artist_id) DO NOTHING`,
+          [
+            trackArtistPairs.map(({ trackId }) => trackId),
+            trackArtistPairs.map(({ artistId }) => artistId),
+          ]
+        );
+        await manager.query(
+          `WITH removed AS (
+             DELETE FROM spotify.saved
+             WHERE account_id = $1
+           )
+           INSERT INTO spotify.saved (account_id, track_id)
+           SELECT $1::text, saved_track.track_id
+           FROM unnest($2::text[]) AS saved_track(track_id)
+           WHERE saved_track.track_id <> ''
+           ON CONFLICT (account_id, track_id) DO NOTHING`,
+          [accountId, savedTrackIds]
+        );
+        await this.updateProgress(accountId, `Saved ${savedTracks.length} saved tracks`);
+
         stage = "projecting artist tags";
         await manager.query("DELETE FROM public.tags WHERE user_id = $1", [userId]);
         await manager.query(
           `INSERT INTO public.tags (user_id, artist_id, tags)
-           SELECT user_id, artist_id, array_agg(tag ORDER BY tag)
+           SELECT user_id, artist_id, array_agg(DISTINCT tag ORDER BY tag)
            FROM (
              SELECT $1::uuid AS user_id, artist.id AS artist_id, 'following'::text AS tag
              FROM spotify.followed_artists AS fa
@@ -101,6 +136,16 @@ export class SpotifySyncService {
              JOIN public.artists AS artist
                ON artist.spotify_id = ta.artist_id
              WHERE ta.account_id = $2
+
+             UNION ALL
+
+             SELECT $1::uuid AS user_id, artist.id AS artist_id, 'saved'::text AS tag
+             FROM spotify.saved AS saved
+             JOIN spotify.tracks AS track
+               ON track.track_id = saved.track_id
+             JOIN public.artists AS artist
+               ON artist.spotify_id = track.artist_id
+             WHERE saved.account_id = $2
            ) AS artist_tags
            GROUP BY user_id, artist_id`,
           [userId, accountId]

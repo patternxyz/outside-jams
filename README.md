@@ -166,12 +166,14 @@ checked by the application in addition to its Cloud Run IAM grant. In local
 development (`NODE_ENV=development`), the same sync runs asynchronously in the
 API process and does not require Google Cloud credentials.
 
-The sync requests Spotify's `user-top-read` and `user-follow-read` permissions.
+The sync requests Spotify's `user-top-read`, `user-follow-read`, and
+`user-library-read` permissions.
 It sequentially loads the user's long-term top artists followed by their followed
-artists, then atomically stores every returned Spotify artist ID in
-`spotify.top_artists` and `spotify.followed_artists`. These values are not
-cross-referenced with `public.artists`. Accounts connected before either
-permission was added must reconnect to grant the new scopes.
+artists, followed artists, and saved tracks. It then atomically stores the artist
+snapshots, replaces the account's rows in `spotify.saved`, accumulates track-to-artist
+mappings in `spotify.tracks`, and projects matching artists to `public.tags` with
+`top`, `following`, and `saved` tags. Accounts connected before any permission was
+added must reconnect to grant the new scopes.
 
 During a sync, `spotify.accounts.last_update` contains a human-readable progress
 message and `updated_at` records when that stage was reached. Failures identify

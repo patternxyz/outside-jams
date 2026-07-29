@@ -116,4 +116,57 @@ describe("SpotifyApiService", () => {
     expect(fetchMock.mock.calls[1][0].toString()).toBe(next);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("loads every saved track page and keeps each track's distinct artists", async () => {
+    const next = "https://api.spotify.com/v1/me/tracks?limit=50&offset=50";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            items: [
+              {
+                track: {
+                  id: "track-1",
+                  artists: [{ id: "artist-1" }, { id: "artist-2" }],
+                },
+              },
+              { track: null },
+            ],
+            next,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            items: [
+              {
+                track: {
+                  id: "track-1",
+                  artists: [{ id: "artist-2" }, { id: "artist-3" }],
+                },
+              },
+              { track: { id: "track-2", artists: [{ id: "artist-4" }] } },
+            ],
+            next: null,
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new SpotifyApiService(
+      new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
+    );
+
+    await expect(service.getSavedTracks("access-token")).resolves.toEqual([
+      { trackId: "track-1", artistIds: ["artist-1", "artist-2", "artist-3"] },
+      { trackId: "track-2", artistIds: ["artist-4"] },
+    ]);
+
+    const firstUrl = new URL(fetchMock.mock.calls[0][0] as URL);
+    expect(firstUrl.pathname).toBe("/v1/me/tracks");
+    expect(firstUrl.searchParams.get("limit")).toBe("50");
+    expect(fetchMock.mock.calls[1][0].toString()).toBe(next);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

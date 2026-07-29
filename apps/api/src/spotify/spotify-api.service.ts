@@ -1,7 +1,11 @@
 import { BadGatewayException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
-import { type SpotifyProfile, type SpotifyTokens } from "./spotify.types.js";
+import {
+  type SpotifyProfile,
+  type SpotifySavedTrack,
+  type SpotifyTokens,
+} from "./spotify.types.js";
 
 type SpotifyTokenResponse = {
   access_token: string;
@@ -24,9 +28,20 @@ type SpotifyFollowedArtistsResponse = {
   artists: SpotifyArtistsPage;
 };
 
+type SpotifySavedTracksPage = {
+  items: Array<{
+    track: {
+      id: string;
+      artists: Array<{ id: string }>;
+    } | null;
+  }>;
+  next: string | null;
+};
+
 const SPOTIFY_API_ORIGIN = "https://api.spotify.com";
 const TOP_ARTISTS_PATH = "/v1/me/top/artists";
 const FOLLOWED_ARTISTS_PATH = "/v1/me/following";
+const SAVED_TRACKS_PATH = "/v1/me/tracks";
 const DEFAULT_RETRY_AFTER_SECONDS = 1;
 const MAX_RATE_LIMIT_RETRIES = 3;
 
@@ -178,6 +193,60 @@ export class SpotifyApiService {
     }
 
     return [...artistIds];
+  }
+
+  async getSavedTracks(accessToken: string): Promise<SpotifySavedTrack[]> {
+    const firstPage = new URL(SAVED_TRACKS_PATH, SPOTIFY_API_ORIGIN);
+    firstPage.search = new URLSearchParams({ limit: "50" }).toString();
+
+    const tracks = new Map<string, Set<string>>();
+    const visited = new Set<string>();
+    let next: string | null = firstPage.toString();
+
+    while (next !== null) {
+      let url: URL;
+      try {
+        url = new URL(next);
+      } catch {
+        throw new BadGatewayException("Spotify returned an invalid saved tracks page URL");
+      }
+      if (url.origin !== SPOTIFY_API_ORIGIN || url.pathname !== SAVED_TRACKS_PATH) {
+        throw new BadGatewayException("Spotify returned an invalid saved tracks page URL");
+      }
+      if (visited.has(url.toString())) {
+        throw new BadGatewayException("Spotify returned a repeated saved tracks page URL");
+      }
+      visited.add(url.toString());
+
+      const response = await this.requestPage(url, accessToken);
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new UnauthorizedException(
+            `Spotify saved tracks request failed (${response.status})`
+          );
+        }
+        throw new BadGatewayException(`Spotify saved tracks request failed (${response.status})`);
+      }
+
+      const page = (await response.json()) as Partial<SpotifySavedTracksPage>;
+      if (!Array.isArray(page.items) || (page.next !== null && typeof page.next !== "string")) {
+        throw new BadGatewayException("Spotify returned an invalid saved tracks response");
+      }
+      for (const item of page.items) {
+        const track = item?.track;
+        if (!track || typeof track.id !== "string" || !track.id || !Array.isArray(track.artists)) {
+          continue;
+        }
+        const artistIds = tracks.get(track.id) ?? new Set<string>();
+        for (const artist of track.artists) {
+          if (artist && typeof artist.id === "string" && artist.id) artistIds.add(artist.id);
+        }
+        tracks.set(track.id, artistIds);
+      }
+      next = page.next;
+    }
+
+    return [...tracks].map(([trackId, artistIds]) => ({ trackId, artistIds: [...artistIds] }));
   }
 
   private async requestPage(url: URL, accessToken: string): Promise<Response> {
