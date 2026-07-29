@@ -26,7 +26,7 @@ import {
   ItemContent,
   ItemDescription,
   ItemGroup,
-  ItemMedia,
+  ItemHeader,
   ItemTitle,
 } from "@/components/ui/item";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -200,8 +200,8 @@ export default function App() {
 
   return (
     <main className="min-h-svh p-6">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-        <Card>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+        <Card className="max-w-2xl">
           <CardHeader>
             <CardTitle>Spotify</CardTitle>
             <CardDescription>Connect your account to personalize Outside Jams.</CardDescription>
@@ -226,19 +226,21 @@ export default function App() {
         {statusQuery.data?.connected ? (
           <Card>
             <CardHeader>
-              <CardTitle>Artists</CardTitle>
-              <CardDescription>Outside Lands 2026 artists.</CardDescription>
+              {/*<CardTitle>Artists</CardTitle>
+              <CardDescription>Outside Lands 2026 artists.</CardDescription>*/}
             </CardHeader>
             <CardContent>
               <Tabs value={selectedDate} onValueChange={(value) => setSelectedDate(String(value))}>
-                <TabsList>
-                  <TabsTrigger value={ALL_DAYS}>All Days</TabsTrigger>
-                  {performanceDates.map((date) => (
-                    <TabsTrigger key={date} value={date}>
-                      {weekdayFormatter.format(parseDateOnly(date))}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+                <div className="flex w-full justify-center pb-12">
+                  <TabsList size="lg">
+                    <TabsTrigger value={ALL_DAYS}>All Days</TabsTrigger>
+                    {performanceDates.map((date) => (
+                      <TabsTrigger key={date} value={date}>
+                        {weekdayFormatter.format(parseDateOnly(date))}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
                 <TabsContent value={selectedDate}>
                   {artistsQuery.isError ? (
                     <p role="alert" className="text-destructive">
@@ -251,7 +253,7 @@ export default function App() {
                           Unable to load your artist tags.
                         </p>
                       ) : null}
-                      <ItemGroup className="grid gap-3 sm:grid-cols-2">
+                      <ItemGroup className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         {visibleArtists.map((artist) => {
                           const thumbnail = getThumbnail(artist.images);
                           const artistTags = tagsByArtist.get(artist.id) ?? [];
@@ -261,28 +263,40 @@ export default function App() {
                             .join(", ");
 
                           return (
-                            <Item key={artist.id} role="listitem" variant="outline" size="sm">
-                              <ItemMedia variant="image">
+                            <Item
+                              key={artist.id}
+                              role="listitem"
+                              variant="outline"
+                              className="items-stretch gap-0 overflow-hidden p-0"
+                            >
+                              <ItemHeader className="relative aspect-square w-full overflow-hidden bg-muted">
                                 {thumbnail ? (
-                                  <img src={thumbnail.url} alt="" loading="lazy" />
+                                  <img
+                                    src={thumbnail.url}
+                                    alt=""
+                                    loading="lazy"
+                                    className="size-full object-cover"
+                                  />
                                 ) : (
                                   <span
                                     aria-hidden="true"
-                                    className="flex size-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground"
+                                    className="flex size-full items-center justify-center text-sm font-medium text-muted-foreground"
                                   >
                                     {getInitials(artist.name)}
                                   </span>
                                 )}
-                              </ItemMedia>
-                              <ItemContent>
-                                <ItemTitle>
-                                  {artist.name}
-                                  {artistTags.map((tag) => (
-                                    <Badge key={tag} variant="secondary">
-                                      {formatTag(tag)}
-                                    </Badge>
-                                  ))}
-                                </ItemTitle>
+                                {artistTags.length > 0 ? (
+                                  <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-1 p-3">
+                                    {artistTags.map((tag) => (
+                                      <Badge key={tag} variant="secondary">
+                                        {formatTag(tag)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </ItemHeader>
+                              <ItemContent className="p-3">
+                                <ItemTitle>{artist.name}</ItemTitle>
                                 {performanceSummary ? (
                                   <ItemDescription>{performanceSummary}</ItemDescription>
                                 ) : null}
