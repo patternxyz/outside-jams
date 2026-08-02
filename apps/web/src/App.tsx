@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { ExternalLink, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  type Artist,
   type ArtistImage,
   type Performance,
   useArtistsQuery,
@@ -23,6 +25,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import {
   Item,
@@ -47,6 +57,10 @@ const SPOTIFY_STATUS_TOAST_ID = "spotify-status";
 const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "long" });
 const performanceTimeFormatter = new Intl.DateTimeFormat(undefined, {
   weekday: "long",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const performanceEndTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
@@ -78,6 +92,20 @@ function formatPerformance(performance: Performance): string {
   return weekdayFormatter.format(parseDateOnly(performance.date));
 }
 
+function formatPerformanceDetails(performance: Performance): string {
+  if (!performance.startTime) {
+    return weekdayFormatter.format(parseDateOnly(performance.date));
+  }
+
+  const start = performanceTimeFormatter.format(new Date(performance.startTime));
+  const end = performance.endTime
+    ? ` – ${performanceEndTimeFormatter.format(new Date(performance.endTime))}`
+    : "";
+  const stage = performance.location ? ` · ${performance.location}` : "";
+
+  return `${start}${end}${stage}`;
+}
+
 function groupPerformancesByArtist(performances: Performance[]): Map<string, Performance[]> {
   const performancesByArtist = new Map<string, Performance[]>();
 
@@ -96,6 +124,7 @@ function formatTag(tag: string): string {
 
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(MY_ARTISTS);
+  const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
   const callbackResult = new URLSearchParams(window.location.search).get("spotify");
   const callbackError =
     callbackResult === "denied"
@@ -217,6 +246,19 @@ export default function App() {
     });
   }
 
+  const selectedArtistPerformances = selectedArtist
+    ? (performancesByArtist.get(selectedArtist.id) ?? [])
+    : [];
+  const selectedArtistTags = selectedArtist ? (tagsByArtist.get(selectedArtist.id) ?? []) : [];
+  const selectedArtistThumbnail = selectedArtist ? getThumbnail(selectedArtist.images) : null;
+  const selectedArtistLinks = selectedArtist
+    ? [
+        { label: "Spotify", url: selectedArtist.spotifyUrl },
+        { label: "Instagram", url: selectedArtist.instagramUrl },
+        { label: "YouTube", url: selectedArtist.youtubeUrl },
+      ].filter((link): link is { label: string; url: string } => Boolean(link.url))
+    : [];
+
   return (
     <main className="min-h-svh p-6">
       <div className="mx-auto flex w-full max-w-8xl flex-col gap-6">
@@ -317,7 +359,11 @@ export default function App() {
                           Unable to load your artist tags.
                         </p>
                       ) : null}
-                      <ItemGroup className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <ItemGroup
+                        role="group"
+                        aria-label="Artists"
+                        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+                      >
                         {visibleArtists.map((artist) => {
                           const thumbnail = getThumbnail(artist.images);
                           const artistTags = tagsByArtist.get(artist.id) ?? [];
@@ -329,9 +375,11 @@ export default function App() {
                           return (
                             <Item
                               key={artist.id}
-                              role="listitem"
+                              render={<button type="button" />}
                               variant="outline"
-                              className="items-stretch gap-0 overflow-hidden p-0"
+                              className="items-stretch gap-0 overflow-hidden p-0 text-left hover:bg-muted"
+                              aria-label={`View details for ${artist.name}`}
+                              onClick={() => setSelectedArtist(artist)}
                             >
                               <ItemHeader className="relative aspect-square w-full overflow-hidden bg-muted">
                                 {thumbnail ? (
@@ -379,6 +427,82 @@ export default function App() {
           </Card>
         ) : null}
       </div>
+
+      <Drawer
+        modal={false}
+        showSwipeHandle
+        disablePointerDismissal
+        open={selectedArtist !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedArtist(null);
+        }}
+      >
+        <DrawerContent data-inverse-theme>
+          {selectedArtist ? (
+            <div className="mx-auto flex w-full max-w-8xl flex-col gap-6 py-8 px-12 sm:flex-row sm:items-center">
+              <div className="size-28 shrink-0 overflow-hidden rounded-lg bg-muted sm:size-36">
+                {selectedArtistThumbnail ? (
+                  <img
+                    src={selectedArtistThumbnail.url}
+                    alt=""
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="flex size-full items-center justify-center text-lg font-medium text-muted-foreground"
+                  >
+                    {getInitials(selectedArtist.name)}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <DrawerHeader className="p-0 group-data-[swipe-axis=y]/drawer-popup:text-left">
+                  <DrawerTitle className="text-xl">{selectedArtist.name}</DrawerTitle>
+                  <DrawerDescription>
+                    {selectedArtistPerformances.length > 0
+                      ? selectedArtistPerformances.map(formatPerformanceDetails).join(", ")
+                      : "Performance details are not available."}
+                  </DrawerDescription>
+                </DrawerHeader>
+
+                {selectedArtistTags.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {selectedArtistTags.map((tag) => (
+                      <Badge key={tag} variant="secondary">
+                        {formatTag(tag)}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+
+                {selectedArtistLinks.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedArtistLinks.map((link) => (
+                      <Button
+                        key={link.label}
+                        variant="outline"
+                        render={<a href={link.url} target="_blank" rel="noreferrer" />}
+                      >
+                        {link.label}
+                        <ExternalLink data-icon="inline-end" />
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <DrawerClose
+                aria-label="Close artist details"
+                render={<Button variant="ghost" size="icon" className="self-start" />}
+              >
+                <X />
+              </DrawerClose>
+            </div>
+          ) : null}
+        </DrawerContent>
+      </Drawer>
     </main>
   );
 }

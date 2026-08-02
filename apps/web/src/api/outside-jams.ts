@@ -29,6 +29,10 @@ export type ArtistImage = {
 export type Artist = {
   id: string;
   name: string;
+  spotifyId: string | null;
+  spotifyUrl: string | null;
+  instagramUrl: string | null;
+  youtubeUrl: string | null;
   images: ArtistImage[] | null;
 };
 
