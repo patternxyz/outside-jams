@@ -34,10 +34,36 @@ CREATE TABLE IF NOT EXISTS performances (
         UNIQUE NULLS NOT DISTINCT (artist_id, date_only, starts, ends)
 );
 
+CREATE SCHEMA IF NOT EXISTS spotify;
+
+CREATE TABLE IF NOT EXISTS spotify.artists (
+    id text NOT NULL,
+    CONSTRAINT spotify_artists_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS spotify.tracks (
+    track_id text NOT NULL,
+    id text NULL,
+    artist_id text NOT NULL,
+    album_id text NULL,
+    name text NULL,
+    duration integer NULL,
+    preview_url text NULL,
+    CONSTRAINT spotify_tracks_pkey PRIMARY KEY (track_id, artist_id),
+    CONSTRAINT spotify_tracks_artist_id_fkey
+        FOREIGN KEY (artist_id) REFERENCES spotify.artists (id),
+    CONSTRAINT spotify_tracks_duration_check CHECK (duration IS NULL OR duration >= 0)
+);
+
 -- Keep existing installations compatible when this script is re-run after the
 -- location field was added.
 ALTER TABLE performances ADD COLUMN IF NOT EXISTS location text;
 ALTER TABLE artists ADD COLUMN IF NOT EXISTS images jsonb;
+ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS id text;
+ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS album_id text;
+ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS name text;
+ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS duration integer;
+ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS preview_url text;
 
 -- artist_id is already the leading column of the unique constraint above.
 CREATE INDEX IF NOT EXISTS performances_date_only_idx
@@ -46,6 +72,13 @@ CREATE INDEX IF NOT EXISTS performances_starts_idx
     ON performances (starts);
 CREATE INDEX IF NOT EXISTS performances_location_idx
     ON performances (location);
+CREATE INDEX IF NOT EXISTS tracks_artist_id_idx
+    ON spotify.tracks (artist_id);
+CREATE UNIQUE INDEX IF NOT EXISTS tracks_track_id_artist_id_idx
+    ON spotify.tracks (track_id, artist_id);
+CREATE UNIQUE INDEX IF NOT EXISTS tracks_id_idx
+    ON spotify.tracks (id)
+    WHERE id IS NOT NULL;
 
 CREATE SCHEMA IF NOT EXISTS import_staging;
 
@@ -147,6 +180,89 @@ ON CONFLICT (id) DO UPDATE SET
     instagram_url = EXCLUDED.instagram_url,
     youtube_url = EXCLUDED.youtube_url,
     images = EXCLUDED.images;
+
+INSERT INTO spotify.artists (id)
+SELECT DISTINCT btrim(payload ->> 'spotifyId')
+FROM import_staging.outside_lands_json
+WHERE NULLIF(btrim(payload ->> 'spotifyId'), '') IS NOT NULL
+ON CONFLICT (id) DO NOTHING;
+
+-- Older application migrations populated spotify.tracks before the artist
+-- identity table existed. Preserve those mappings and make them valid foreign
+-- key targets before adding the constraint.
+INSERT INTO spotify.artists (id)
+SELECT DISTINCT artist_id
+FROM spotify.tracks
+WHERE NULLIF(btrim(artist_id), '') IS NOT NULL
+ON CONFLICT (id) DO NOTHING;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'spotify.tracks'::regclass
+          AND conname = 'spotify_tracks_artist_id_fkey'
+    ) THEN
+        ALTER TABLE spotify.tracks
+            ADD CONSTRAINT spotify_tracks_artist_id_fkey
+            FOREIGN KEY (artist_id) REFERENCES spotify.artists (id);
+    END IF;
+END
+$$;
+
+WITH staged_tracks AS (
+    SELECT
+        regexp_replace(btrim(track ->> 'uri'), '^spotify:track:', '') AS track_id,
+        btrim(track ->> 'uri') AS id,
+        btrim(track ->> 'artistId') AS artist_id,
+        btrim(track ->> 'albumId') AS album_id,
+        track ->> 'name' AS name,
+        (track ->> 'duration')::integer AS duration,
+        NULLIF(btrim(track ->> 'preview_url'), '') AS preview_url
+    FROM import_staging.outside_lands_json
+    CROSS JOIN LATERAL jsonb_array_elements(
+        COALESCE(payload -> 'tracks', '[]'::jsonb)
+    ) AS tracks (track)
+),
+deduplicated_tracks AS (
+    SELECT DISTINCT ON (id)
+        track_id,
+        id,
+        artist_id,
+        album_id,
+        name,
+        duration,
+        preview_url
+    FROM staged_tracks
+    ORDER BY id, artist_id, album_id, name
+)
+INSERT INTO spotify.tracks (
+    track_id,
+    id,
+    artist_id,
+    album_id,
+    name,
+    duration,
+    preview_url
+)
+SELECT
+    track_id,
+    id,
+    artist_id,
+    album_id,
+    name,
+    duration,
+    preview_url
+FROM deduplicated_tracks
+WHERE track_id <> '' AND id <> '' AND artist_id <> '' AND album_id <> ''
+ON CONFLICT (track_id, artist_id) DO UPDATE SET
+    id = EXCLUDED.id,
+    artist_id = EXCLUDED.artist_id,
+    album_id = EXCLUDED.album_id,
+    name = EXCLUDED.name,
+    duration = EXCLUDED.duration,
+    preview_url = EXCLUDED.preview_url;
 
 WITH staged_artists AS (
     SELECT payload AS artist

@@ -45,6 +45,15 @@ export type Performance = {
   location: string | null;
 };
 
+export type Track = {
+  artistId: string;
+  albumId: string;
+  name: string;
+  duration: number;
+  previewUrl: string | null;
+  uri: string;
+};
+
 const queryKeys = {
   artists: ["artists"] as const,
   performances: ["performances"] as const,
@@ -52,6 +61,7 @@ const queryKeys = {
   spotifyProfile: ["spotify", "profile"] as const,
   spotifySyncStatus: ["spotify", "sync-status"] as const,
   tags: ["tags"] as const,
+  tracks: (artistId: string) => ["tracks", artistId] as const,
 };
 
 export const queryClient = new QueryClient();
@@ -117,6 +127,18 @@ export function usePerformancesQuery() {
   return useQuery({
     queryKey: queryKeys.performances,
     queryFn: ({ signal }) => requestJson<Performance[]>("/api/performances", { signal }),
+    staleTime: 5 * 60 * 1_000,
+  });
+}
+
+export function useTracksQuery(artistId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.tracks(artistId ?? ""),
+    queryFn: ({ signal }) =>
+      requestJson<Track[]>(`/api/tracks?artistId=${encodeURIComponent(artistId ?? "")}`, {
+        signal,
+      }),
+    enabled: artistId !== null,
     staleTime: 5 * 60 * 1_000,
   });
 }

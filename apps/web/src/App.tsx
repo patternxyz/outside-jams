@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ExternalLink, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ExternalLink, Heart, Pause, Play, SkipBack, SkipForward, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -13,6 +13,7 @@ import {
   useSpotifyStatusQuery,
   useSpotifySyncStatusQuery,
   useTagsQuery,
+  useTracksQuery,
 } from "@/api/outside-jams";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const MY_ARTISTS = "my-artists";
 const SPOTIFY_STATUS_TOAST_ID = "spotify-status";
@@ -125,6 +127,11 @@ function formatTag(tag: string): string {
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(MY_ARTISTS);
   const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  const [favoriteTrackUris, setFavoriteTrackUris] = useState<Set<string>>(() => new Set());
+  const audioRef = useRef<HTMLAudioElement>(null);
   const callbackResult = new URLSearchParams(window.location.search).get("spotify");
   const callbackError =
     callbackResult === "denied"
@@ -138,6 +145,7 @@ export default function App() {
   const tagsQuery = useTagsQuery(syncStatusQuery.data?.lastSyncStatus === "completed");
   const artistsQuery = useArtistsQuery();
   const performancesQuery = usePerformancesQuery();
+  const tracksQuery = useTracksQuery(selectedArtist?.id ?? null);
   const disconnectMutation = useDisconnectSpotifyMutation();
   const profileName = profileQuery.data?.name ?? statusQuery.data?.displayName ?? "Spotify user";
   const profileImage = profileQuery.data?.image ?? null;
@@ -240,9 +248,62 @@ export default function App() {
     syncStatusQuery.isPending,
   ]);
 
+  useEffect(() => {
+    audioRef.current?.pause();
+    setCurrentTrackIndex(0);
+    setIsPlaying(false);
+    setHasStartedPlayback(false);
+  }, [selectedArtist?.id]);
+
+  const selectedArtistTracks = tracksQuery.data ?? [];
+  const currentTrack = selectedArtistTracks[currentTrackIndex] ?? null;
+  const canPlay = tracksQuery.isSuccess && selectedArtistTracks.length > 0;
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.pause();
+    audio.load();
+
+    if (!isPlaying) return;
+    if (!currentTrack?.previewUrl) return;
+
+    void audio.play().catch(() => setIsPlaying(false));
+  }, [currentTrack?.previewUrl, currentTrack?.uri, isPlaying]);
+
   function disconnectSpotify() {
     disconnectMutation.mutate(undefined, {
       onSuccess: () => window.history.replaceState({}, "", window.location.pathname),
+    });
+  }
+
+  function changeTrack(offset: number) {
+    if (selectedArtistTracks.length < 2) return;
+
+    setCurrentTrackIndex(
+      (index) => (index + offset + selectedArtistTracks.length) % selectedArtistTracks.length
+    );
+  }
+
+  function togglePlayback() {
+    if (!canPlay) return;
+
+    setHasStartedPlayback(true);
+    setIsPlaying((playing) => !playing);
+  }
+
+  function toggleFavorite() {
+    if (!currentTrack) return;
+
+    setFavoriteTrackUris((favorites) => {
+      const nextFavorites = new Set(favorites);
+      if (nextFavorites.has(currentTrack.uri)) {
+        nextFavorites.delete(currentTrack.uri);
+      } else {
+        nextFavorites.add(currentTrack.uri);
+      }
+      return nextFavorites;
     });
   }
 
@@ -258,6 +319,7 @@ export default function App() {
         { label: "YouTube", url: selectedArtist.youtubeUrl },
       ].filter((link): link is { label: string; url: string } => Boolean(link.url))
     : [];
+  const isCurrentTrackFavorite = currentTrack ? favoriteTrackUris.has(currentTrack.uri) : false;
 
   return (
     <main className="min-h-svh p-6">
@@ -439,63 +501,128 @@ export default function App() {
       >
         <DrawerContent data-inverse-theme>
           {selectedArtist ? (
-            <div className="mx-auto flex w-full max-w-8xl flex-col gap-6 py-8 px-12 sm:flex-row sm:items-center">
-              <div className="size-28 shrink-0 overflow-hidden rounded-lg bg-muted sm:size-36">
-                {selectedArtistThumbnail ? (
-                  <img
-                    src={selectedArtistThumbnail.url}
-                    alt=""
-                    className="size-full object-cover"
-                  />
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="flex size-full items-center justify-center text-lg font-medium text-muted-foreground"
+            <div className="relative mx-auto grid w-full max-w-8xl grid-cols-6 gap-6 px-6 py-8 sm:px-12">
+              <section className="col-span-6 flex min-w-0 flex-col gap-6 sm:col-span-3 sm:flex-row sm:items-center">
+                <div className="size-28 shrink-0 overflow-hidden rounded-lg bg-muted sm:size-36">
+                  {selectedArtistThumbnail ? (
+                    <img
+                      src={selectedArtistThumbnail.url}
+                      alt=""
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="flex size-full items-center justify-center text-lg font-medium text-muted-foreground"
+                    >
+                      {getInitials(selectedArtist.name)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-1 flex-col gap-3">
+                  <DrawerHeader className="p-0 group-data-[swipe-axis=y]/drawer-popup:text-left">
+                    <p className="min-h-5 truncate text-sm font-medium" aria-live="polite">
+                      {hasStartedPlayback ? currentTrack?.name : null}
+                    </p>
+                    <DrawerTitle className="text-xl">{selectedArtist.name}</DrawerTitle>
+                    <DrawerDescription>
+                      {selectedArtistPerformances.length > 0
+                        ? selectedArtistPerformances.map(formatPerformanceDetails).join(", ")
+                        : "Performance details are not available."}
+                    </DrawerDescription>
+                  </DrawerHeader>
+
+                  {selectedArtistTags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedArtistTags.map((tag) => (
+                        <Badge key={tag} variant="secondary">
+                          {formatTag(tag)}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedArtistLinks.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedArtistLinks.map((link) => (
+                        <Button
+                          key={link.label}
+                          variant="outline"
+                          render={<a href={link.url} target="_blank" rel="noreferrer" />}
+                        >
+                          {link.label}
+                          <ExternalLink data-icon="inline-end" />
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+
+              <div className="col-span-6 flex items-center justify-center sm:col-span-3">
+                <div className="flex items-center gap-3" role="group" aria-label="Player controls">
+                  <Button
+                    variant="ghost"
+                    size="icon-xl"
+                    aria-label="Previous track"
+                    disabled={selectedArtistTracks.length < 2}
+                    onClick={() => changeTrack(-1)}
                   >
-                    {getInitials(selectedArtist.name)}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex min-w-0 flex-1 flex-col gap-3">
-                <DrawerHeader className="p-0 group-data-[swipe-axis=y]/drawer-popup:text-left">
-                  <DrawerTitle className="text-xl">{selectedArtist.name}</DrawerTitle>
-                  <DrawerDescription>
-                    {selectedArtistPerformances.length > 0
-                      ? selectedArtistPerformances.map(formatPerformanceDetails).join(", ")
-                      : "Performance details are not available."}
-                  </DrawerDescription>
-                </DrawerHeader>
-
-                {selectedArtistTags.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {selectedArtistTags.map((tag) => (
-                      <Badge key={tag} variant="secondary">
-                        {formatTag(tag)}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-
-                {selectedArtistLinks.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedArtistLinks.map((link) => (
-                      <Button
-                        key={link.label}
-                        variant="outline"
-                        render={<a href={link.url} target="_blank" rel="noreferrer" />}
-                      >
-                        {link.label}
-                        <ExternalLink data-icon="inline-end" />
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
+                    <SkipBack strokeWidth={2.75} />
+                  </Button>
+                  <Button
+                    size="icon-xl"
+                    variant="outline"
+                    className="rounded-full w-20"
+                    aria-label={isPlaying ? "Pause track" : "Play track"}
+                    aria-pressed={isPlaying}
+                    disabled={!canPlay}
+                    onClick={togglePlayback}
+                  >
+                    {isPlaying ? <Pause strokeWidth={2.75} /> : <Play strokeWidth={2.75} />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xl"
+                    aria-label="Next track"
+                    disabled={selectedArtistTracks.length < 2}
+                    onClick={() => changeTrack(1)}
+                  >
+                    <SkipForward strokeWidth={2.75} />
+                  </Button>
+                  <Button
+                    variant={isCurrentTrackFavorite ? "secondary" : "ghost"}
+                    size="icon-xl"
+                    aria-label={
+                      isCurrentTrackFavorite ? "Remove track from favorites" : "Favorite track"
+                    }
+                    aria-pressed={isCurrentTrackFavorite}
+                    disabled={!currentTrack}
+                    onClick={toggleFavorite}
+                  >
+                    <Heart
+                      className={cn(isCurrentTrackFavorite && "fill-current")}
+                      strokeWidth={2.75}
+                    />
+                  </Button>
+                </div>
+                <audio
+                  ref={audioRef}
+                  src={currentTrack?.previewUrl ?? undefined}
+                  onEnded={() => {
+                    if (selectedArtistTracks.length > 1) {
+                      changeTrack(1);
+                    } else {
+                      setIsPlaying(false);
+                    }
+                  }}
+                />
               </div>
 
               <DrawerClose
                 aria-label="Close artist details"
-                render={<Button variant="ghost" size="icon" className="self-start" />}
+                render={<Button variant="ghost" size="icon" className="absolute top-4 right-4" />}
               >
                 <X />
               </DrawerClose>

@@ -16,6 +16,7 @@ import { CreateSpotifySavedTracks1754200000000 } from "./database/migrations/175
 import { PerformancesModule } from "./performances/performances.module.js";
 import { SpotifyModule } from "./spotify/spotify.module.js";
 import { TagsModule } from "./tags/tags.module.js";
+import { TracksModule } from "./tracks/tracks.module.js";
 
 const DEFAULT_RATE_LIMIT = 100;
 const DEFAULT_RATE_LIMIT_TTL_MS = 60_000;
@@ -67,6 +68,7 @@ function positiveIntegerOrDefault(value: string | undefined, fallback: number): 
     PerformancesModule,
     SpotifyModule,
     TagsModule,
+    TracksModule,
   ],
   controllers: [AppController],
   providers: [

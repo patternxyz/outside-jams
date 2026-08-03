@@ -31,6 +31,29 @@ openssl rand -base64 48 # SESSION_SECRET
 openssl rand -base64 32 # TOKEN_ENCRYPTION_KEY
 ```
 
+Generate three tracks from each lineup artist's latest album with:
+
+```sh
+npm run data:spotify-tracks
+```
+
+LP releases are selected by default; `--lp` can also be supplied explicitly.
+After an LP run, fill artists that remain missing with tracks from their latest
+EP by running:
+
+```sh
+npm run data:spotify-tracks -- --ep
+```
+
+Spotify categorizes EPs in its `single` release group, so EP mode selects the
+latest multi-track release from that group.
+
+The generator makes at most one Spotify request per second, checks one album
+page per artist, and checkpoints `data/tracks.json` after each artist. Reruns
+skip checkpointed artists. Set `SPOTIFY_RESUME=false` for a fresh output file,
+or tune `SPOTIFY_REQUEST_INTERVAL_MS`, `SPOTIFY_ALBUM_PAGE_LIMIT`, and
+`SPOTIFY_MARKET` in `.env`.
+
 `API_BASE_URL` controls the OAuth callback origin. Leave it empty to use the
 current request origin, which works through Vite's local proxy when the app is
 opened at `http://127.0.0.1:5173`, or set it to a proxy/public origin such as

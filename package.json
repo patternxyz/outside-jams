@@ -17,6 +17,7 @@
     "build": "npm run build -w @app/web && npm run build -w @app/api",
     "start": "npm run start -w @app/api",
     "data:spotify-images": "node --env-file=.env scripts/fetch-spotify-artist-images.mjs",
+    "data:spotify-tracks": "node --env-file=.env scripts/fetch-spotify-artist-tracks.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
