@@ -74,7 +74,16 @@ The read-only API includes:
 
 Performance lists can be filtered with the `date`, `artistId`, `startTime`, and
 `location` query parameters. Dates use `YYYY-MM-DD`; start times use an ISO 8601
-timestamp. Filters can be combined.
+timestamp. Filters can be combined. Responses include the latest schedule-change
+metadata and previous values. Removed performances are omitted by default; pass
+`includeRemoved=true` to include them using their last known schedule values.
+
+The lineup import treats `data/outside_lands_2026.jsonl` as the complete schedule
+for the `outside-lands-2026` event. Performances use slowly changing dimension Type
+2 history: changed or removed versions receive `valid_to`, while new versions receive
+`valid_from`. Normal API queries return only current versions. The
+`public.performance_changes` view flattens each current performance against its most
+recent prior version and labels it as `added`, `changed`, or `removed`.
 
 API routes are rate limited per client. The default allows 100 requests per
 60-second window and can be configured with `API_RATE_LIMIT` and

@@ -6,6 +6,7 @@
 -- each document directly into a jsonb staging row.
 
 \set ON_ERROR_STOP on
+\set event_key 'outside-lands-2026'
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -23,15 +24,17 @@ CREATE TABLE IF NOT EXISTS artists (
 CREATE TABLE IF NOT EXISTS performances (
     id uuid NOT NULL,
     artist_id uuid NOT NULL,
+    performance_key uuid NOT NULL,
+    event_key text NOT NULL,
     date_only date NOT NULL,
     starts timestamptz NULL,
     ends timestamptz NULL,
     location text NULL,
+    valid_from timestamptz NOT NULL,
+    valid_to timestamptz NULL,
     CONSTRAINT performances_pkey PRIMARY KEY (id),
     CONSTRAINT performances_artist_id_fkey
-        FOREIGN KEY (artist_id) REFERENCES artists (id),
-    CONSTRAINT performances_artist_date_times_key
-        UNIQUE NULLS NOT DISTINCT (artist_id, date_only, starts, ends)
+        FOREIGN KEY (artist_id) REFERENCES artists (id)
 );
 
 CREATE SCHEMA IF NOT EXISTS spotify;
@@ -56,9 +59,45 @@ CREATE TABLE IF NOT EXISTS spotify.tracks (
     CONSTRAINT spotify_tracks_duration_check CHECK (duration IS NULL OR duration >= 0)
 );
 
--- Keep existing installations compatible when this script is re-run after the
--- location field was added.
+-- Keep existing installations compatible as imported fields are added.
 ALTER TABLE performances ADD COLUMN IF NOT EXISTS location text;
+ALTER TABLE performances ADD COLUMN IF NOT EXISTS event_key text;
+ALTER TABLE performances ADD COLUMN IF NOT EXISTS performance_key uuid;
+ALTER TABLE performances ADD COLUMN IF NOT EXISTS valid_from timestamptz;
+ALTER TABLE performances ADD COLUMN IF NOT EXISTS valid_to timestamptz;
+UPDATE performances SET event_key = :'event_key' WHERE event_key IS NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'performances'
+          AND column_name = 'deleted_at'
+    ) THEN
+        UPDATE performances
+        SET valid_from = COALESCE(valid_from, deleted_at),
+            valid_to = COALESCE(valid_to, deleted_at)
+        WHERE deleted_at IS NOT NULL;
+    END IF;
+END
+$$;
+UPDATE performances
+SET performance_key = COALESCE(
+        performance_key,
+        uuid_generate_v5(
+            '7c121c77-625b-49e7-b84c-c54628f61bd2'::uuid,
+            'performance:' || event_key || ':' || artist_id::text
+        )
+    ),
+    valid_from = COALESCE(valid_from, now());
+ALTER TABLE performances
+    ALTER COLUMN event_key SET NOT NULL,
+    ALTER COLUMN performance_key SET NOT NULL,
+    ALTER COLUMN valid_from SET NOT NULL;
+ALTER TABLE performances DROP CONSTRAINT IF EXISTS performances_artist_date_times_key;
+DROP INDEX IF EXISTS performances_event_key_deleted_at_idx;
+ALTER TABLE performances DROP COLUMN IF EXISTS deleted_at;
 ALTER TABLE artists ADD COLUMN IF NOT EXISTS images jsonb;
 ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS id text;
 ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS album_id text;
@@ -67,13 +106,16 @@ ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS duration integer;
 ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS preview_url text;
 ALTER TABLE spotify.artists ADD COLUMN IF NOT EXISTS name text;
 
--- artist_id is already the leading column of the unique constraint above.
 CREATE INDEX IF NOT EXISTS performances_date_only_idx
     ON performances (date_only);
 CREATE INDEX IF NOT EXISTS performances_starts_idx
     ON performances (starts);
 CREATE INDEX IF NOT EXISTS performances_location_idx
     ON performances (location);
+CREATE INDEX IF NOT EXISTS performances_current_key_idx
+    ON performances (performance_key, valid_to);
+CREATE INDEX IF NOT EXISTS performances_event_key_valid_to_idx
+    ON performances (event_key, valid_to);
 CREATE INDEX IF NOT EXISTS tracks_artist_id_idx
     ON spotify.tracks (artist_id);
 CREATE UNIQUE INDEX IF NOT EXISTS tracks_track_id_artist_id_idx
@@ -94,6 +136,15 @@ BEGIN;
 CREATE UNLOGGED TABLE import_staging.outside_lands_json (
     import_order bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     payload jsonb NOT NULL
+);
+
+CREATE UNLOGGED TABLE import_staging.outside_lands_performances (
+    performance_key uuid PRIMARY KEY,
+    artist_id uuid NOT NULL,
+    date_only date NOT NULL,
+    starts timestamptz NULL,
+    ends timestamptz NULL,
+    location text NULL
 );
 
 -- Delimiter and quote are control characters that cannot occur literally in
@@ -295,60 +346,133 @@ staged_performances AS (
     CROSS JOIN LATERAL jsonb_array_elements(
         COALESCE(artist -> 'performances', '[]'::jsonb)
     ) AS performances (performance)
-),
-identified_performances AS (
-    SELECT
-        uuid_generate_v5(
-            '7c121c77-625b-49e7-b84c-c54628f61bd2'::uuid,
-            concat_ws(
-                ':',
-                'performance',
-                artist_id::text,
-                date_only::text,
-                COALESCE(
-                    to_char(
-                        starts AT TIME ZONE 'UTC',
-                        'YYYY-MM-DD"T"HH24:MI:SS.US'
-                    ),
-                    'null'
-                ),
-                COALESCE(
-                    to_char(
-                        ends AT TIME ZONE 'UTC',
-                        'YYYY-MM-DD"T"HH24:MI:SS.US'
-                    ),
-                    'null'
-                )
-            )
-        ) AS id,
-        artist_id,
-        date_only,
-        starts,
-        ends,
-        location
-    FROM staged_performances
-),
-deduplicated_performances AS (
-    SELECT DISTINCT ON (id)
-        id,
-        artist_id,
-        date_only,
-        starts,
-        ends,
-        location
-    FROM identified_performances
-    ORDER BY id
 )
-INSERT INTO performances (id, artist_id, date_only, starts, ends, location)
-SELECT id, artist_id, date_only, starts, ends, location
-FROM deduplicated_performances
-WHERE true
-ON CONFLICT (id) DO UPDATE SET
-    artist_id = EXCLUDED.artist_id,
-    date_only = EXCLUDED.date_only,
-    starts = EXCLUDED.starts,
-    ends = EXCLUDED.ends,
-    location = EXCLUDED.location;
+INSERT INTO import_staging.outside_lands_performances (
+    performance_key,
+    artist_id,
+    date_only,
+    starts,
+    ends,
+    location
+)
+SELECT
+    uuid_generate_v5(
+        '7c121c77-625b-49e7-b84c-c54628f61bd2'::uuid,
+        'performance:' || :'event_key'::text || ':' || artist_id::text
+    ),
+    artist_id,
+    date_only,
+    starts,
+    ends,
+    location
+FROM staged_performances;
+
+-- Close current versions that were removed or whose schedule fields changed.
+-- An empty staging schedule is treated as an incomplete source, not a deletion.
+UPDATE performances AS current
+SET valid_to = CURRENT_TIMESTAMP
+WHERE current.event_key = :'event_key'
+  AND current.valid_to IS NULL
+  AND EXISTS (SELECT 1 FROM import_staging.outside_lands_performances)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM import_staging.outside_lands_performances AS imported
+      WHERE imported.performance_key = current.performance_key
+        AND imported.date_only IS NOT DISTINCT FROM current.date_only
+        AND imported.starts IS NOT DISTINCT FROM current.starts
+        AND imported.ends IS NOT DISTINCT FROM current.ends
+        AND imported.location IS NOT DISTINCT FROM current.location
+  );
+
+-- Insert first or replacement versions. Unchanged current versions are retained.
+INSERT INTO performances (
+    id,
+    artist_id,
+    performance_key,
+    event_key,
+    date_only,
+    starts,
+    ends,
+    location,
+    valid_from,
+    valid_to
+)
+SELECT
+    uuid_generate_v4(),
+    imported.artist_id,
+    imported.performance_key,
+    :'event_key'::text,
+    imported.date_only,
+    imported.starts,
+    imported.ends,
+    imported.location,
+    CURRENT_TIMESTAMP,
+    NULL
+FROM import_staging.outside_lands_performances AS imported
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM performances AS current
+    WHERE current.performance_key = imported.performance_key
+      AND current.valid_to IS NULL
+);
+
+DROP VIEW IF EXISTS performance_changes;
+CREATE VIEW performance_changes AS
+WITH current_versions AS (
+    SELECT * FROM performances WHERE valid_to IS NULL
+),
+previous_versions AS (
+    SELECT DISTINCT ON (performance_key) *
+    FROM performances
+    WHERE valid_to IS NOT NULL
+    ORDER BY performance_key, valid_to DESC, valid_from DESC, id DESC
+)
+SELECT
+    COALESCE(current.id, previous.id) AS id,
+    COALESCE(current.performance_key, previous.performance_key) AS performance_key,
+    COALESCE(current.event_key, previous.event_key) AS event_key,
+    COALESCE(current.artist_id, previous.artist_id) AS artist_id,
+    artist.name AS artist_name,
+    COALESCE(current.date_only, previous.date_only) AS date_only,
+    COALESCE(current.starts, previous.starts) AS starts,
+    COALESCE(current.ends, previous.ends) AS ends,
+    COALESCE(current.location, previous.location) AS location,
+    CASE
+        WHEN current.id IS NULL THEN 'removed'
+        WHEN previous.id IS NULL THEN 'added'
+        ELSE 'changed'
+    END AS change_type,
+    previous.id AS previous_performance_id,
+    current.id AS current_performance_id,
+    previous.date_only AS previous_date,
+    current.date_only AS current_date,
+    previous.starts AS previous_starts,
+    current.starts AS current_starts,
+    previous.ends AS previous_ends,
+    current.ends AS current_ends,
+    previous.location AS previous_location,
+    current.location AS current_location,
+    CASE
+        WHEN previous.id IS NOT NULL AND current.id IS NOT NULL THEN
+            array_remove(ARRAY[
+                CASE WHEN previous.date_only IS DISTINCT FROM current.date_only THEN 'date' END,
+                CASE WHEN previous.starts IS DISTINCT FROM current.starts THEN 'starts' END,
+                CASE WHEN previous.ends IS DISTINCT FROM current.ends THEN 'ends' END,
+                CASE WHEN previous.location IS DISTINCT FROM current.location THEN 'location' END
+            ], NULL)
+        ELSE ARRAY[]::text[]
+    END AS changed_fields,
+    previous.valid_from AS previous_valid_from,
+    previous.valid_to AS previous_valid_to,
+    current.valid_from AS current_valid_from,
+    COALESCE(current.valid_from, previous.valid_to) AS detected_at
+FROM current_versions AS current
+FULL OUTER JOIN previous_versions AS previous
+    ON previous.performance_key = current.performance_key
+JOIN artists AS artist
+    ON artist.id = COALESCE(current.artist_id, previous.artist_id);
+
+DROP TABLE import_staging.outside_lands_performances;
 
 DROP TABLE import_staging.outside_lands_json;
 

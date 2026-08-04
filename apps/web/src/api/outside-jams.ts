@@ -43,6 +43,18 @@ export type Performance = {
   startTime: string | null;
   endTime: string | null;
   location: string | null;
+  change: {
+    type: "added" | "changed" | "removed";
+    fields: string[];
+    detectedAt: string;
+    previous: {
+      id: string;
+      date: string;
+      startTime: string | null;
+      endTime: string | null;
+      location: string | null;
+    } | null;
+  };
 };
 
 export type Track = {

@@ -1,20 +1,22 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import type { FindOptionsWhere, Repository } from "typeorm";
+import { Not, type FindOptionsWhere, type Repository } from "typeorm";
 
 import { FindPerformancesQueryDto } from "./dto/find-performances-query.dto.js";
 import { PerformanceResponseDto } from "./dto/performance-response.dto.js";
-import { Performance } from "./entities/performance.entity.js";
+import { PerformanceChange } from "./entities/performance-change.entity.js";
 
 @Injectable()
 export class PerformancesService {
   constructor(
-    @InjectRepository(Performance)
-    private readonly performancesRepository: Repository<Performance>
+    @InjectRepository(PerformanceChange)
+    private readonly performancesRepository: Repository<PerformanceChange>
   ) {}
 
   async findAll(filters: FindPerformancesQueryDto): Promise<PerformanceResponseDto[]> {
-    const where: FindOptionsWhere<Performance> = {};
+    const where: FindOptionsWhere<PerformanceChange> = {};
+
+    if (!filters.includeRemoved) where.changeType = Not("removed");
 
     if (filters.date !== undefined) where.date = filters.date;
     if (filters.artistId !== undefined) where.artistId = filters.artistId;
@@ -30,7 +32,10 @@ export class PerformancesService {
   }
 
   async findById(id: string): Promise<PerformanceResponseDto> {
-    const performance = await this.performancesRepository.findOneBy({ id });
+    const performance = await this.performancesRepository.findOneBy({
+      id,
+      changeType: Not("removed"),
+    });
 
     if (!performance) {
       throw new NotFoundException(`Performance ${id} was not found`);

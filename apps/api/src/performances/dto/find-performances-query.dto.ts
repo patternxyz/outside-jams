@@ -1,4 +1,6 @@
+import { Transform } from "class-transformer";
 import {
+  IsBoolean,
   IsDateString,
   IsISO8601,
   IsOptional,
@@ -9,6 +11,15 @@ import {
 } from "class-validator";
 
 export class FindPerformancesQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return value;
+  })
+  @IsBoolean()
+  includeRemoved?: boolean;
+
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
     message: "date must use the YYYY-MM-DD format",
