@@ -38,6 +38,7 @@ CREATE SCHEMA IF NOT EXISTS spotify;
 
 CREATE TABLE IF NOT EXISTS spotify.artists (
     id text NOT NULL,
+    name text NULL,
     CONSTRAINT spotify_artists_pkey PRIMARY KEY (id)
 );
 
@@ -64,6 +65,7 @@ ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS album_id text;
 ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS name text;
 ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS duration integer;
 ALTER TABLE spotify.tracks ADD COLUMN IF NOT EXISTS preview_url text;
+ALTER TABLE spotify.artists ADD COLUMN IF NOT EXISTS name text;
 
 -- artist_id is already the leading column of the unique constraint above.
 CREATE INDEX IF NOT EXISTS performances_date_only_idx
@@ -181,11 +183,15 @@ ON CONFLICT (id) DO UPDATE SET
     youtube_url = EXCLUDED.youtube_url,
     images = EXCLUDED.images;
 
-INSERT INTO spotify.artists (id)
-SELECT DISTINCT btrim(payload ->> 'spotifyId')
+INSERT INTO spotify.artists (id, name)
+SELECT DISTINCT ON (btrim(payload ->> 'spotifyId'))
+    btrim(payload ->> 'spotifyId'),
+    NULLIF(btrim(payload ->> 'name'), '')
 FROM import_staging.outside_lands_json
 WHERE NULLIF(btrim(payload ->> 'spotifyId'), '') IS NOT NULL
-ON CONFLICT (id) DO NOTHING;
+ORDER BY btrim(payload ->> 'spotifyId'), NULLIF(btrim(payload ->> 'name'), '') NULLS LAST
+ON CONFLICT (id) DO UPDATE SET
+    name = COALESCE(EXCLUDED.name, spotify.artists.name);
 
 -- Older application migrations populated spotify.tracks before the artist
 -- identity table existed. Preserve those mappings and make them valid foreign
@@ -281,7 +287,10 @@ staged_performances AS (
         (performance ->> 'date')::date AS date_only,
         NULLIF(btrim(performance ->> 'startTime'), '')::timestamptz AS starts,
         NULLIF(btrim(performance ->> 'endTime'), '')::timestamptz AS ends,
-        NULLIF(btrim(performance ->> 'location'), '') AS location
+        COALESCE(
+            NULLIF(btrim(performance ->> 'stage'), ''),
+            NULLIF(btrim(performance ->> 'location'), '')
+        ) AS location
     FROM staged_artists
     CROSS JOIN LATERAL jsonb_array_elements(
         COALESCE(artist -> 'performances', '[]'::jsonb)

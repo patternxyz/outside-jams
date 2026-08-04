@@ -2,6 +2,7 @@ import { BadGatewayException, Injectable, UnauthorizedException } from "@nestjs/
 import { ConfigService } from "@nestjs/config";
 
 import {
+  type SpotifyArtist,
   type SpotifyProfile,
   type SpotifySavedTrack,
   type SpotifyTokens,
@@ -21,7 +22,7 @@ type SpotifyProfileResponse = {
 };
 
 type SpotifyArtistsPage = {
-  items: Array<{ id: string }>;
+  items: Array<{ id: string; name?: unknown }>;
   next: string | null;
 };
 
@@ -33,7 +34,7 @@ type SpotifySavedTracksPage = {
   items: Array<{
     track: {
       id: string;
-      artists: Array<{ id: string }>;
+      artists: Array<{ id: string; name?: unknown }>;
     } | null;
   }>;
   next: string | null;
@@ -104,11 +105,11 @@ export class SpotifyApiService {
     };
   }
 
-  async getTopArtistIds(accessToken: string): Promise<string[]> {
+  async getTopArtists(accessToken: string): Promise<SpotifyArtist[]> {
     const firstPage = new URL(TOP_ARTISTS_PATH, SPOTIFY_API_ORIGIN);
     firstPage.search = new URLSearchParams({ limit: "50", time_range: "long_term" }).toString();
 
-    const artistIds = new Set<string>();
+    const artists = new Map<string, SpotifyArtist>();
     const visited = new Set<string>();
     let next: string | null = firstPage.toString();
 
@@ -142,19 +143,19 @@ export class SpotifyApiService {
         throw new BadGatewayException("Spotify returned an invalid top artists response");
       }
       for (const artist of page.items) {
-        if (artist && typeof artist.id === "string" && artist.id) artistIds.add(artist.id);
+        this.addArtist(artists, artist);
       }
       next = page.next;
     }
 
-    return [...artistIds];
+    return [...artists.values()];
   }
 
-  async getFollowedArtistIds(accessToken: string): Promise<string[]> {
+  async getFollowedArtists(accessToken: string): Promise<SpotifyArtist[]> {
     const firstPage = new URL(FOLLOWED_ARTISTS_PATH, SPOTIFY_API_ORIGIN);
     firstPage.search = new URLSearchParams({ limit: "50", type: "artist" }).toString();
 
-    const artistIds = new Set<string>();
+    const artists = new Map<string, SpotifyArtist>();
     const visited = new Set<string>();
     let next: string | null = firstPage.toString();
 
@@ -195,19 +196,19 @@ export class SpotifyApiService {
         throw new BadGatewayException("Spotify returned an invalid followed artists response");
       }
       for (const artist of page.items) {
-        if (artist && typeof artist.id === "string" && artist.id) artistIds.add(artist.id);
+        this.addArtist(artists, artist);
       }
       next = page.next;
     }
 
-    return [...artistIds];
+    return [...artists.values()];
   }
 
   async getSavedTracks(accessToken: string): Promise<SpotifySavedTrack[]> {
     const firstPage = new URL(SAVED_TRACKS_PATH, SPOTIFY_API_ORIGIN);
     firstPage.search = new URLSearchParams({ limit: "50" }).toString();
 
-    const tracks = new Map<string, Set<string>>();
+    const tracks = new Map<string, Map<string, SpotifyArtist>>();
     const visited = new Set<string>();
     let next: string | null = firstPage.toString();
 
@@ -245,16 +246,31 @@ export class SpotifyApiService {
         if (!track || typeof track.id !== "string" || !track.id || !Array.isArray(track.artists)) {
           continue;
         }
-        const artistIds = tracks.get(track.id) ?? new Set<string>();
+        const artists = tracks.get(track.id) ?? new Map<string, SpotifyArtist>();
         for (const artist of track.artists) {
-          if (artist && typeof artist.id === "string" && artist.id) artistIds.add(artist.id);
+          this.addArtist(artists, artist);
         }
-        tracks.set(track.id, artistIds);
+        tracks.set(track.id, artists);
       }
       next = page.next;
     }
 
-    return [...tracks].map(([trackId, artistIds]) => ({ trackId, artistIds: [...artistIds] }));
+    return [...tracks].map(([trackId, artists]) => ({
+      trackId,
+      artists: [...artists.values()],
+    }));
+  }
+
+  private addArtist(
+    artists: Map<string, SpotifyArtist>,
+    candidate: { id?: unknown; name?: unknown } | null | undefined
+  ): void {
+    if (typeof candidate?.id !== "string" || !candidate.id) return;
+
+    const name = typeof candidate.name === "string" ? candidate.name.trim() || null : null;
+    const existing = artists.get(candidate.id);
+    if (!existing || (!existing.name && name))
+      artists.set(candidate.id, { id: candidate.id, name });
   }
 
   private async requestPage(url: URL, accessToken: string): Promise<Response> {

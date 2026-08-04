@@ -11,9 +11,14 @@ export type SpotifyProfile = {
   image: string | null;
 };
 
+export type SpotifyArtist = {
+  id: string;
+  name: string | null;
+};
+
 export type SpotifySavedTrack = {
   trackId: string;
-  artistIds: string[];
+  artists: SpotifyArtist[];
 };
 
 export type CachedSpotifyTokens = SpotifyTokens & {

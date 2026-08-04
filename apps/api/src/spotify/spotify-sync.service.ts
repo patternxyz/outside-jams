@@ -44,24 +44,45 @@ export class SpotifySyncService {
       const accessToken = await this.tokenService.getValidAccessToken(userId);
 
       stage = "fetching top artists";
-      const topArtistIds = await this.spotifyApi.getTopArtistIds(accessToken);
-      await this.updateProgress(accountId, `Fetched ${topArtistIds.length} top artists`);
+      const topArtists = await this.spotifyApi.getTopArtists(accessToken);
+      await this.updateProgress(accountId, `Fetched ${topArtists.length} top artists`);
 
       stage = "fetching followed artists";
-      const followedArtistIds = await this.spotifyApi.getFollowedArtistIds(accessToken);
-      await this.updateProgress(accountId, `Fetched ${followedArtistIds.length} followed artists`);
+      const followedArtists = await this.spotifyApi.getFollowedArtists(accessToken);
+      await this.updateProgress(accountId, `Fetched ${followedArtists.length} followed artists`);
 
       stage = "fetching saved tracks";
       const savedTracks = await this.spotifyApi.getSavedTracks(accessToken);
       await this.updateProgress(accountId, `Fetched ${savedTracks.length} saved tracks`);
 
       const savedTrackIds = savedTracks.map(({ trackId }) => trackId);
-      const trackArtistPairs = savedTracks.flatMap(({ trackId, artistIds }) =>
-        artistIds.map((artistId) => ({ trackId, artistId }))
+      const trackArtistPairs = savedTracks.flatMap(({ trackId, artists }) =>
+        artists.map(({ id: artistId }) => ({ trackId, artistId }))
       );
+      const artistsById = new Map<string, { id: string; name: string | null }>();
+      for (const artist of [
+        ...topArtists,
+        ...followedArtists,
+        ...savedTracks.flatMap(({ artists }) => artists),
+      ]) {
+        const existing = artistsById.get(artist.id);
+        if (!existing || (!existing.name && artist.name)) artistsById.set(artist.id, artist);
+      }
+      const artists = [...artistsById.values()];
+      const topArtistIds = topArtists.map(({ id }) => id);
+      const followedArtistIds = followedArtists.map(({ id }) => id);
 
       stage = "saving top artists";
       await this.dataSource.transaction(async (manager) => {
+        await manager.query(
+          `INSERT INTO spotify.artists (id, name)
+           SELECT artist.id, artist.name
+           FROM unnest($1::text[], $2::text[]) AS artist(id, name)
+           WHERE artist.id <> ''
+           ON CONFLICT (id) DO UPDATE SET
+             name = COALESCE(EXCLUDED.name, spotify.artists.name)`,
+          [artists.map(({ id }) => id), artists.map(({ name }) => name)]
+        );
         await manager.query(
           `WITH removed AS (
              DELETE FROM spotify.top_artists
@@ -74,7 +95,7 @@ export class SpotifySyncService {
           ON CONFLICT (account_id, artist_id) DO NOTHING`,
           [accountId, topArtistIds]
         );
-        await this.updateProgress(accountId, `Saved ${topArtistIds.length} top artists`);
+        await this.updateProgress(accountId, `Saved ${topArtists.length} top artists`);
 
         stage = "saving followed artists";
         await manager.query(
@@ -89,7 +110,7 @@ export class SpotifySyncService {
           ON CONFLICT (account_id, artist_id) DO NOTHING`,
           [accountId, followedArtistIds]
         );
-        await this.updateProgress(accountId, `Saved ${followedArtistIds.length} followed artists`);
+        await this.updateProgress(accountId, `Saved ${followedArtists.length} followed artists`);
 
         stage = "saving saved tracks";
         await manager.query(

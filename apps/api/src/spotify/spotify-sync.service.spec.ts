@@ -25,11 +25,23 @@ describe("SpotifySyncService", () => {
       ),
     };
     const spotifyApi = {
-      getTopArtistIds: vi.fn().mockResolvedValue(["spotify-1", "spotify-2"]),
-      getFollowedArtistIds: vi.fn().mockResolvedValue(["spotify-3", "spotify-4"]),
+      getTopArtists: vi.fn().mockResolvedValue([
+        { id: "spotify-1", name: "Artist One" },
+        { id: "spotify-2", name: "Artist Two" },
+      ]),
+      getFollowedArtists: vi.fn().mockResolvedValue([
+        { id: "spotify-3", name: "Artist Three" },
+        { id: "spotify-4", name: null },
+      ]),
       getSavedTracks: vi.fn().mockResolvedValue([
-        { trackId: "track-1", artistIds: ["spotify-1", "spotify-5"] },
-        { trackId: "track-2", artistIds: ["spotify-5"] },
+        {
+          trackId: "track-1",
+          artists: [
+            { id: "spotify-1", name: "Artist One" },
+            { id: "spotify-5", name: "Artist Five" },
+          ],
+        },
+        { trackId: "track-2", artists: [{ id: "spotify-5", name: "Artist Five" }] },
       ]),
     };
     const tokenService = { getValidAccessToken: vi.fn().mockResolvedValue("access-token") };
@@ -109,29 +121,37 @@ describe("SpotifySyncService", () => {
       })
     );
     expect(tokenService.getValidAccessToken).toHaveBeenCalledWith(userId);
-    expect(spotifyApi.getTopArtistIds).toHaveBeenCalledWith("access-token");
-    expect(spotifyApi.getFollowedArtistIds).toHaveBeenCalledWith("access-token");
+    expect(spotifyApi.getTopArtists).toHaveBeenCalledWith("access-token");
+    expect(spotifyApi.getFollowedArtists).toHaveBeenCalledWith("access-token");
     expect(spotifyApi.getSavedTracks).toHaveBeenCalledWith("access-token");
-    expect(spotifyApi.getTopArtistIds.mock.invocationCallOrder[0]).toBeLessThan(
-      spotifyApi.getFollowedArtistIds.mock.invocationCallOrder[0]
+    expect(spotifyApi.getTopArtists.mock.invocationCallOrder[0]).toBeLessThan(
+      spotifyApi.getFollowedArtists.mock.invocationCallOrder[0]
     );
-    expect(spotifyApi.getFollowedArtistIds.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(spotifyApi.getFollowedArtists.mock.invocationCallOrder[0]).toBeLessThan(
       spotifyApi.getSavedTracks.mock.invocationCallOrder[0]
     );
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    expect(manager.query).toHaveBeenCalledTimes(6);
+    expect(manager.query).toHaveBeenCalledTimes(7);
     expect(manager.query).toHaveBeenNthCalledWith(
       1,
+      expect.stringContaining("INSERT INTO spotify.artists"),
+      [
+        ["spotify-1", "spotify-2", "spotify-3", "spotify-4", "spotify-5"],
+        ["Artist One", "Artist Two", "Artist Three", null, "Artist Five"],
+      ]
+    );
+    expect(manager.query).toHaveBeenNthCalledWith(
+      2,
       expect.stringContaining("spotify.top_artists"),
       [accountId, ["spotify-1", "spotify-2"]]
     );
     expect(manager.query).toHaveBeenNthCalledWith(
-      2,
+      3,
       expect.stringContaining("spotify.followed_artists"),
       [accountId, ["spotify-3", "spotify-4"]]
     );
     expect(manager.query).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.stringContaining("INSERT INTO spotify.tracks"),
       [
         ["track-1", "track-1", "track-2"],
@@ -139,57 +159,60 @@ describe("SpotifySyncService", () => {
       ]
     );
     expect(manager.query).toHaveBeenNthCalledWith(
-      4,
+      5,
       expect.stringContaining("INSERT INTO spotify.saved"),
       [accountId, ["track-1", "track-2"]]
     );
-    expect(manager.query).toHaveBeenNthCalledWith(5, "DELETE FROM public.tags WHERE user_id = $1", [
+    expect(manager.query).toHaveBeenNthCalledWith(6, "DELETE FROM public.tags WHERE user_id = $1", [
       userId,
     ]);
     expect(manager.query).toHaveBeenNthCalledWith(
-      6,
+      7,
       expect.stringContaining("INSERT INTO public.tags"),
       [userId, accountId]
     );
-    expect(manager.query.mock.calls[0][0]).toContain("unnest($2::text[])");
-    expect(manager.query.mock.calls[0][0]).not.toContain("public.artists");
     expect(manager.query.mock.calls[1][0]).toContain("unnest($2::text[])");
     expect(manager.query.mock.calls[1][0]).not.toContain("public.artists");
-    expect(manager.query.mock.calls[5][0]).toContain("WHERE fa.account_id = $2");
-    expect(manager.query.mock.calls[5][0]).toContain("WHERE ta.account_id = $2");
-    expect(manager.query.mock.calls[5][0]).toContain("WHERE saved.account_id = $2");
-    expect(manager.query.mock.calls[5][0]).toContain("$1::uuid AS user_id");
-    expect(manager.query.mock.calls[5][0]).toContain("public.artists");
-    expect(manager.query.mock.calls[5][0]).toContain("artist.spotify_id = fa.artist_id");
-    expect(manager.query.mock.calls[5][0]).toContain("artist.spotify_id = ta.artist_id");
-    expect(manager.query.mock.calls[5][0]).toContain("artist.spotify_id = track.artist_id");
-    expect(manager.query.mock.calls[5][0]).toContain("array_agg(DISTINCT tag ORDER BY tag)");
+    expect(manager.query.mock.calls[2][0]).toContain("unnest($2::text[])");
+    expect(manager.query.mock.calls[2][0]).not.toContain("public.artists");
+    expect(manager.query.mock.calls[6][0]).toContain("WHERE fa.account_id = $2");
+    expect(manager.query.mock.calls[6][0]).toContain("WHERE ta.account_id = $2");
+    expect(manager.query.mock.calls[6][0]).toContain("WHERE saved.account_id = $2");
+    expect(manager.query.mock.calls[6][0]).toContain("$1::uuid AS user_id");
+    expect(manager.query.mock.calls[6][0]).toContain("public.artists");
+    expect(manager.query.mock.calls[6][0]).toContain("artist.spotify_id = fa.artist_id");
+    expect(manager.query.mock.calls[6][0]).toContain("artist.spotify_id = ta.artist_id");
+    expect(manager.query.mock.calls[6][0]).toContain("artist.spotify_id = track.artist_id");
+    expect(manager.query.mock.calls[6][0]).toContain("array_agg(DISTINCT tag ORDER BY tag)");
     expect(manager.update).not.toHaveBeenCalled();
     expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
-      accounts.update.mock.invocationCallOrder[4]
-    );
-    expect(accounts.update.mock.invocationCallOrder[4]).toBeLessThan(
       manager.query.mock.invocationCallOrder[1]
     );
     expect(manager.query.mock.invocationCallOrder[1]).toBeLessThan(
-      accounts.update.mock.invocationCallOrder[5]
+      accounts.update.mock.invocationCallOrder[4]
     );
-    expect(accounts.update.mock.invocationCallOrder[5]).toBeLessThan(
+    expect(accounts.update.mock.invocationCallOrder[4]).toBeLessThan(
       manager.query.mock.invocationCallOrder[2]
     );
     expect(manager.query.mock.invocationCallOrder[2]).toBeLessThan(
+      accounts.update.mock.invocationCallOrder[5]
+    );
+    expect(accounts.update.mock.invocationCallOrder[5]).toBeLessThan(
       manager.query.mock.invocationCallOrder[3]
     );
     expect(manager.query.mock.invocationCallOrder[3]).toBeLessThan(
-      accounts.update.mock.invocationCallOrder[6]
-    );
-    expect(accounts.update.mock.invocationCallOrder[6]).toBeLessThan(
       manager.query.mock.invocationCallOrder[4]
     );
     expect(manager.query.mock.invocationCallOrder[4]).toBeLessThan(
+      accounts.update.mock.invocationCallOrder[6]
+    );
+    expect(accounts.update.mock.invocationCallOrder[6]).toBeLessThan(
       manager.query.mock.invocationCallOrder[5]
     );
     expect(manager.query.mock.invocationCallOrder[5]).toBeLessThan(
+      manager.query.mock.invocationCallOrder[6]
+    );
+    expect(manager.query.mock.invocationCallOrder[6]).toBeLessThan(
       accounts.update.mock.invocationCallOrder[7]
     );
   });
@@ -205,12 +228,12 @@ describe("SpotifySyncService", () => {
   it("preserves existing top artists and records failed when Spotify fails", async () => {
     const { accounts, dataSource, service, spotifyApi } = dependencies();
     const failure = new Error("Spotify failed");
-    spotifyApi.getTopArtistIds.mockRejectedValue(failure);
+    spotifyApi.getTopArtists.mockRejectedValue(failure);
 
     await expect(service.sync(userId)).rejects.toBe(failure);
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
-    expect(spotifyApi.getFollowedArtistIds).not.toHaveBeenCalled();
+    expect(spotifyApi.getFollowedArtists).not.toHaveBeenCalled();
     expect(accounts.update).toHaveBeenLastCalledWith(
       { id: accountId },
       expect.objectContaining({
@@ -224,11 +247,11 @@ describe("SpotifySyncService", () => {
   it("does not persist either snapshot when followed artists fail", async () => {
     const { accounts, dataSource, service, spotifyApi } = dependencies();
     const failure = new Error("Followed artists failed");
-    spotifyApi.getFollowedArtistIds.mockRejectedValue(failure);
+    spotifyApi.getFollowedArtists.mockRejectedValue(failure);
 
     await expect(service.sync(userId)).rejects.toBe(failure);
 
-    expect(spotifyApi.getTopArtistIds).toHaveBeenCalledTimes(1);
+    expect(spotifyApi.getTopArtists).toHaveBeenCalledTimes(1);
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(spotifyApi.getSavedTracks).not.toHaveBeenCalled();
     expect(accounts.update).toHaveBeenLastCalledWith(

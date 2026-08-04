@@ -63,21 +63,27 @@ describe("SpotifyApiService", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "artist-1" }], next }),
+        json: () => Promise.resolve({ items: [{ id: "artist-1", name: "Artist One" }], next }),
       })
       .mockResolvedValueOnce({
         ok: true,
         json: () =>
-          Promise.resolve({ items: [{ id: "artist-2" }, { id: "artist-1" }], next: null }),
+          Promise.resolve({
+            items: [
+              { id: "artist-2", name: " Artist Two " },
+              { id: "artist-1", name: "Artist One" },
+            ],
+            next: null,
+          }),
       });
     vi.stubGlobal("fetch", fetchMock);
     const service = new SpotifyApiService(
       new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
     );
 
-    await expect(service.getTopArtistIds("access-token")).resolves.toEqual([
-      "artist-1",
-      "artist-2",
+    await expect(service.getTopArtists("access-token")).resolves.toEqual([
+      { id: "artist-1", name: "Artist One" },
+      { id: "artist-2", name: "Artist Two" },
     ]);
 
     const firstUrl = new URL(fetchMock.mock.calls[0][0] as URL);
@@ -104,12 +110,12 @@ describe("SpotifyApiService", () => {
       new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
     );
 
-    const topArtists = service.getTopArtistIds("access-token");
+    const topArtists = service.getTopArtists("access-token");
     await vi.advanceTimersByTimeAsync(1_999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
 
-    await expect(topArtists).resolves.toEqual(["artist-1"]);
+    await expect(topArtists).resolves.toEqual([{ id: "artist-1", name: null }]);
     expect(headers.get).toHaveBeenCalledWith("retry-after");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -120,20 +126,26 @@ describe("SpotifyApiService", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ artists: { items: [{ id: "artist-1" }], next } }),
+        json: () =>
+          Promise.resolve({
+            artists: { items: [{ id: "artist-1", name: "Artist One" }], next },
+          }),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ artists: { items: [{ id: "artist-2" }], next: null } }),
+        json: () =>
+          Promise.resolve({
+            artists: { items: [{ id: "artist-2", name: "Artist Two" }], next: null },
+          }),
       });
     vi.stubGlobal("fetch", fetchMock);
     const service = new SpotifyApiService(
       new ConfigService({ SPOTIFY_CLIENT_ID: "client", SPOTIFY_CLIENT_SECRET: "secret" })
     );
 
-    await expect(service.getFollowedArtistIds("access-token")).resolves.toEqual([
-      "artist-1",
-      "artist-2",
+    await expect(service.getFollowedArtists("access-token")).resolves.toEqual([
+      { id: "artist-1", name: "Artist One" },
+      { id: "artist-2", name: "Artist Two" },
     ]);
 
     const firstUrl = new URL(fetchMock.mock.calls[0][0] as URL);
@@ -156,7 +168,10 @@ describe("SpotifyApiService", () => {
               {
                 track: {
                   id: "track-1",
-                  artists: [{ id: "artist-1" }, { id: "artist-2" }],
+                  artists: [
+                    { id: "artist-1", name: "Artist One" },
+                    { id: "artist-2", name: "Artist Two" },
+                  ],
                 },
               },
               { track: null },
@@ -172,7 +187,10 @@ describe("SpotifyApiService", () => {
               {
                 track: {
                   id: "track-1",
-                  artists: [{ id: "artist-2" }, { id: "artist-3" }],
+                  artists: [
+                    { id: "artist-2", name: "Artist Two" },
+                    { id: "artist-3", name: "Artist Three" },
+                  ],
                 },
               },
               { track: { id: "track-2", artists: [{ id: "artist-4" }] } },
@@ -186,8 +204,15 @@ describe("SpotifyApiService", () => {
     );
 
     await expect(service.getSavedTracks("access-token")).resolves.toEqual([
-      { trackId: "track-1", artistIds: ["artist-1", "artist-2", "artist-3"] },
-      { trackId: "track-2", artistIds: ["artist-4"] },
+      {
+        trackId: "track-1",
+        artists: [
+          { id: "artist-1", name: "Artist One" },
+          { id: "artist-2", name: "Artist Two" },
+          { id: "artist-3", name: "Artist Three" },
+        ],
+      },
+      { trackId: "track-2", artists: [{ id: "artist-4", name: null }] },
     ]);
 
     const firstUrl = new URL(fetchMock.mock.calls[0][0] as URL);

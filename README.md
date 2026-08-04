@@ -191,12 +191,12 @@ API process and does not require Google Cloud credentials.
 
 The sync requests Spotify's `user-top-read`, `user-follow-read`, and
 `user-library-read` permissions.
-It sequentially loads the user's long-term top artists followed by their followed
-artists, followed artists, and saved tracks. It then atomically stores the artist
-snapshots, replaces the account's rows in `spotify.saved`, accumulates track-to-artist
-mappings in `spotify.tracks`, and projects matching artists to `public.tags` with
-`top`, `following`, and `saved` tags. Accounts connected before any permission was
-added must reconnect to grant the new scopes.
+It sequentially loads the user's long-term top artists, followed artists, and saved
+tracks. It then atomically stores Spotify artist IDs and available names in
+`spotify.artists`, stores the artist snapshots, replaces the account's rows in
+`spotify.saved`, accumulates track-to-artist mappings in `spotify.tracks`, and projects
+matching artists to `public.tags` with `top`, `following`, and `saved` tags. Accounts
+connected before any permission was added must reconnect to grant the new scopes.
 
 During a sync, `spotify.accounts.last_update` contains a human-readable progress
 message and `updated_at` records when that stage was reached. Failures identify
