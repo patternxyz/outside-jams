@@ -3,6 +3,11 @@ import type {
   PerformanceChangeType,
 } from "../entities/performance-change.entity.js";
 
+function dateOnly(value: string | Date): string {
+  const serialized = value instanceof Date ? value.toISOString() : value;
+  return serialized.slice(0, 10);
+}
+
 export class PreviousPerformanceResponseDto {
   id!: string;
   date!: string;
@@ -31,7 +36,7 @@ export class PerformanceResponseDto {
     const dto = new PerformanceResponseDto();
     dto.id = performance.id;
     dto.artistId = performance.artistId;
-    dto.date = performance.date;
+    dto.date = dateOnly(performance.date);
     dto.startTime = performance.startTime;
     dto.endTime = performance.endTime;
     dto.location = performance.location;
@@ -42,7 +47,7 @@ export class PerformanceResponseDto {
       previous: performance.previousPerformanceId
         ? {
             id: performance.previousPerformanceId,
-            date: performance.previousDate!,
+            date: dateOnly(performance.previousDate!),
             startTime: performance.previousStartTime,
             endTime: performance.previousEndTime,
             location: performance.previousLocation,

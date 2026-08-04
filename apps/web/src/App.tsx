@@ -81,9 +81,22 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-function parseDateOnly(date: string): Date {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(year, month - 1, day);
+function parseDateOnly(date: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(date);
+  if (!match) return null;
+
+  const [, year, month, day] = match.map(Number);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === day
+    ? parsed
+    : null;
+}
+
+function formatPerformanceDate(date: string): string {
+  const parsed = parseDateOnly(date);
+  return parsed ? weekdayFormatter.format(parsed) : date;
 }
 
 function formatPerformance(performance: Performance): string {
@@ -91,12 +104,12 @@ function formatPerformance(performance: Performance): string {
     return performanceTimeFormatter.format(new Date(performance.startTime));
   }
 
-  return weekdayFormatter.format(parseDateOnly(performance.date));
+  return formatPerformanceDate(performance.date);
 }
 
 function formatPerformanceDetails(performance: Performance): string {
   if (!performance.startTime) {
-    return weekdayFormatter.format(parseDateOnly(performance.date));
+    return formatPerformanceDate(performance.date);
   }
 
   const start = performanceTimeFormatter.format(new Date(performance.startTime));
@@ -386,7 +399,7 @@ export default function App() {
                     </TabsTrigger>
                     {performanceDates.map((date) => (
                       <TabsTrigger key={date} value={date}>
-                        {weekdayFormatter.format(parseDateOnly(date))}
+                        {formatPerformanceDate(date)}
                       </TabsTrigger>
                     ))}
                   </TabsList>

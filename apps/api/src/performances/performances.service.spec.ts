@@ -96,4 +96,26 @@ describe("PerformancesService", () => {
       }),
     ]);
   });
+
+  it("serializes database date values as date-only strings", async () => {
+    const { performance, repository, service } = dependencies();
+    repository.find.mockResolvedValue([
+      {
+        ...performance,
+        date: new Date("2026-08-07T00:00:00.000Z"),
+        changeType: "changed",
+        previousPerformanceId: "038152b2-ff93-47aa-a91f-d29c609dfcff",
+        previousDate: new Date("2026-08-06T00:00:00.000Z"),
+      },
+    ]);
+
+    await expect(service.findAll({})).resolves.toEqual([
+      expect.objectContaining({
+        date: "2026-08-07",
+        change: expect.objectContaining({
+          previous: expect.objectContaining({ date: "2026-08-06" }),
+        }),
+      }),
+    ]);
+  });
 });
